@@ -6,3 +6,4 @@
 /config.yaml
 /archive_index.csv
 /crawler.db*
+/scratch

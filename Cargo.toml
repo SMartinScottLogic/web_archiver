@@ -1,0 +1,36 @@
+[package]
+name = "web_archiver"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "web_archiver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "web_archiver"
+path = "src/main.rs"
+
+[[bin]]
+name = "archive_indexer"
+path = "bins/indexer.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["gzip","brotli","deflate"] }
+scraper = "0.18"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+lru = "0.12"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4.44"
+html2md = "0.2"
+readability = "0.3"
+csv = "1.2"
+serde_yaml = "0.9"
+clap = { version = "4", features = ["derive"] }
