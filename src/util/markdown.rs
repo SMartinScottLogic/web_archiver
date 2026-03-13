@@ -73,3 +73,30 @@ fn remove_markdown_links(md: &str) -> String {
     output.push_str(rest);
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_html_to_markdown_basic() {
+        let html = "<h1>Title</h1><p>Hello <a href='x'>world</a></p>";
+        let url = "https://example.com";
+        let md = html_to_markdown(html, url);
+        assert!(!md.is_empty()); // Should produce some output
+    }
+
+    #[test]
+    fn test_remove_tag() {
+        let html = "<div>keep</div><script>remove</script>";
+        let cleaned = super::remove_tag(html, "script");
+        assert_eq!(cleaned, "<div>keep</div>");
+    }
+
+    #[test]
+    fn test_remove_markdown_links() {
+        let md = "[text](url) plain";
+        let cleaned = super::remove_markdown_links(md);
+        assert_eq!(cleaned, " plain");
+    }
+}
