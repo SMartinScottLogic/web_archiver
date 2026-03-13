@@ -83,3 +83,70 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
 
     Ok((extracted_page, discovered_links))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::messages::FetchTask;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_extract_page_basic() {
+        let html = b"<html><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let fetched = FetchedPage {
+            task: FetchTask {
+                url_id: 1,
+                url: "https://foo.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            status_code: 200,
+            content_type: Some("text/html".to_string()),
+            fetch_time: 0,
+            body: Arc::new(html),
+        };
+        let (extracted, discovered) = extract_page(fetched).await.unwrap();
+        assert!(extracted.content_markdown.is_some());
+        assert_eq!(discovered.links.len(), 1);
+        assert!(discovered.links[0].contains("foo.com/bar"));
+    }
+
+    #[tokio::test]
+    async fn test_extractor_loop_sends_outputs() {
+        use crate::types::messages::{DiscoveredLinks, ExtractedPage, FetchedPage};
+        use std::sync::Arc;
+        use tokio::sync::mpsc;
+
+        let (tx_fetched, rx_fetched) = mpsc::channel(1);
+        let (tx_storage, mut rx_storage) = mpsc::channel(1);
+        let (tx_frontier, mut rx_frontier) = mpsc::channel(1);
+
+        // Send a test FetchedPage
+        let html = b"<html><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let fetched = FetchedPage {
+            task: FetchTask {
+                url_id: 1,
+                url: "https://foo.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            status_code: 200,
+            content_type: Some("text/html".to_string()),
+            fetch_time: 0,
+            body: Arc::new(html),
+        };
+        tx_fetched.send(fetched).await.unwrap();
+        drop(tx_fetched); // Close channel
+
+        extractor_loop(rx_fetched, tx_storage.clone(), tx_frontier.clone()).await;
+
+        // Check that outputs were sent
+        let extracted: ExtractedPage = rx_storage.try_recv().unwrap();
+        let discovered: DiscoveredLinks = rx_frontier.try_recv().unwrap();
+        assert!(extracted.content_markdown.is_some());
+        assert_eq!(discovered.links.len(), 1);
+        assert!(discovered.links[0].contains("foo.com/bar"));
+    }
+}

@@ -1,5 +1,3 @@
-
-
 use rusqlite::{Connection, Result};
 
 pub fn init_schema(conn: &Connection) -> Result<()> {
@@ -64,7 +62,9 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         assert!(init_schema(&conn).is_ok());
         // Check a table exists
-        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='urls'").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='urls'")
+            .unwrap();
         let mut rows = stmt.query([]).unwrap();
         assert!(rows.next().unwrap().is_some());
     }

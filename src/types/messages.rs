@@ -85,4 +85,3 @@ mod tests {
         assert_eq!(links.depth, 2);
     }
 }
-

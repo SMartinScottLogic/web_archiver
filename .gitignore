@@ -7,4 +7,5 @@
 /archive_index.csv
 /crawler.db*
 /scratch
-tarpaulin-report.html
+/tarpaulin-report.html
+/cobertura.xml

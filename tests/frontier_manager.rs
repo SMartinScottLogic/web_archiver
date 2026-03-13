@@ -1,14 +1,15 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
-use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use web_archiver::frontier::frontier_manager::FrontierManager;
 use web_archiver::types::messages::DiscoveredLinks;
 
 fn setup_manager(seed_urls: Vec<String>, allowed_domains: Vec<String>) -> FrontierManager {
     let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(r#"
+    conn.execute_batch(
+        r#"
         CREATE TABLE urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
@@ -25,7 +26,9 @@ fn setup_manager(seed_urls: Vec<String>, allowed_domains: Vec<String>) -> Fronti
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
         );
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     let (tx_fetch, _rx_fetch) = mpsc::channel(10);
     let (_tx_links, rx_links) = mpsc::channel(10);
     FrontierManager::new(
