@@ -90,19 +90,28 @@ mod tests {
     fn test_resolve_relative_link() {
         let base = "https://example.com/page";
         let link = "/about";
-        assert_eq!(resolve_relative_link(base, link), Some("https://example.com/about".to_string()));
+        assert_eq!(
+            resolve_relative_link(base, link),
+            Some("https://example.com/about".to_string())
+        );
     }
 
     #[test]
     fn test_canonicalize_url() {
         let url = "HTTP://Example.com:80/foo?bar#frag";
-        assert_eq!(canonicalize_url(url), Some("http://example.com/foo?bar".to_string()));
+        assert_eq!(
+            canonicalize_url(url),
+            Some("http://example.com/foo?bar".to_string())
+        );
     }
 
     #[test]
     fn test_extract_domain() {
         let url = "https://news.ycombinator.com/item?id=1";
-        assert_eq!(extract_domain(url), Some("news.ycombinator.com".to_string()));
+        assert_eq!(
+            extract_domain(url),
+            Some("news.ycombinator.com".to_string())
+        );
     }
 
     #[test]

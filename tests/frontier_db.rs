@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
-use rusqlite::{Connection};
+use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use web_archiver::frontier::db::frontier::FrontierDb;
 use web_archiver::types::messages::FetchTask;
@@ -8,7 +8,8 @@ use web_archiver::types::messages::FetchTask;
 fn setup_db() -> FrontierDb {
     let conn = Connection::open_in_memory().unwrap();
     // Create minimal schema for testing
-    conn.execute_batch(r#"
+    conn.execute_batch(
+        r#"
         CREATE TABLE urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
@@ -25,8 +26,12 @@ fn setup_db() -> FrontierDb {
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
         );
-    "#).unwrap();
-    FrontierDb { conn: Arc::new(Mutex::new(conn)) }
+    "#,
+    )
+    .unwrap();
+    FrontierDb {
+        conn: Arc::new(Mutex::new(conn)),
+    }
 }
 
 #[test]
@@ -71,7 +76,8 @@ fn test_enqueue_batch_deduplication() {
         priority: 3,
         discovered_from: Some(2),
     };
-    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()]).unwrap();
+    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()])
+        .unwrap();
     // Only two unique URLs should be present
     let mut seen = vec![];
     for _ in 0..2 {

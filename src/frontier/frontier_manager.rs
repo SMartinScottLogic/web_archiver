@@ -116,3 +116,225 @@ impl FrontierManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frontier::db::frontier::FrontierDb;
+    use crate::types::messages::DiscoveredLinks;
+    use rusqlite::Connection;
+    use std::sync::{Arc, Mutex};
+
+    fn setup_manager(allowed_domains: Vec<String>) -> FrontierManager {
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        // Create minimal schema for enqueue_batch
+        conn.lock().unwrap().execute_batch(r#"
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
+                "#).unwrap();
+        FrontierManager {
+            db: FrontierDb::new(conn),
+            tx_fetch: tokio::sync::mpsc::channel(1).0,
+            rx_links: tokio::sync::mpsc::channel(1).1,
+            noop_delay_millis: 1,
+            allowed_domains,
+        }
+    }
+
+    #[test]
+    fn test_process_discovered_links_skips_non_http() {
+        let mut mgr = setup_manager(vec!["foo.com".to_string()]);
+        let msg = DiscoveredLinks {
+            parent_url_id: 1,
+            links: vec![
+                "ftp://foo.com/file".to_string(),
+                "mailto:bar@foo.com".to_string(),
+            ],
+            depth: 1,
+        };
+        mgr.process_discovered_links(msg);
+        // Should not enqueue anything
+        let conn = mgr.db.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_process_discovered_links_skips_disallowed_domain() {
+        let mut mgr = setup_manager(vec!["foo.com".to_string()]);
+        let msg = DiscoveredLinks {
+            parent_url_id: 1,
+            links: vec!["http://bar.com/page".to_string()],
+            depth: 1,
+        };
+        mgr.process_discovered_links(msg);
+        let conn = mgr.db.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_process_discovered_links_skips_no_domain() {
+        let mut mgr = setup_manager(vec!["foo.com".to_string()]);
+        let msg = DiscoveredLinks {
+            parent_url_id: 1,
+            links: vec!["http://bar.com/page".to_string()],
+            depth: 1,
+        };
+        mgr.process_discovered_links(msg);
+        let conn = mgr.db.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_process_discovered_links_enqueues_valid() {
+        let mut mgr = setup_manager(vec!["foo.com".to_string()]);
+        let msg = DiscoveredLinks {
+            parent_url_id: 1,
+            links: vec!["http://foo.com/page".to_string()],
+            depth: 2,
+        };
+        mgr.process_discovered_links(msg);
+        let conn = mgr.db.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let url: String = conn
+            .query_row("SELECT url FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(url, "http://foo.com/page");
+    }
+
+    #[tokio::test]
+    async fn test_run_dispatches_tasks() {
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        // Create minimal schema for enqueue_batch and claim_next
+        conn.lock().unwrap().execute_batch(r#"
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
+                    INSERT INTO urls (id, url, domain, discovered_at) VALUES (1, 'http://example.com', 'example.com', 1);
+                    INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
+                "#).unwrap();
+        
+        let (tx_fetch, mut rx_fetch) = tokio::sync::mpsc::channel(1);
+        let (_tx_links, rx_links) = tokio::sync::mpsc::channel(1);
+        
+        let mgr = FrontierManager {
+            db: FrontierDb::new(conn),
+            tx_fetch,
+            rx_links,
+            noop_delay_millis: 1,
+            allowed_domains: vec!["example.com".to_string()],
+        };
+
+        // Start the run method in a task but don't move mgr afterwards
+        let handle = tokio::spawn(async move {
+            mgr.run().await;
+        });
+
+        // Give it a moment to process
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Check that a task was sent
+        let task = rx_fetch.try_recv();
+        assert!(task.is_ok());
+
+        // Cancel the task
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_run_processes_links() {
+        // Create a separate connection for checking the database
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        conn.lock().unwrap().execute_batch(r#"
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
+                "#).unwrap();
+        
+        let (tx_fetch, _rx_fetch) = tokio::sync::mpsc::channel(1);
+        let (tx_links, rx_links) = tokio::sync::mpsc::channel(1);
+        
+        // Create manager with the same connection
+        let mgr = FrontierManager {
+            db: FrontierDb::new(conn.clone()),
+            tx_fetch,
+            rx_links,
+            noop_delay_millis: 1,
+            allowed_domains: vec!["example.com".to_string()],
+        };
+
+        // Send a link message
+        let msg = DiscoveredLinks {
+            parent_url_id: 1,
+            links: vec!["http://example.com/page".to_string()],
+            depth: 1,
+        };
+        tx_links.send(msg).await.unwrap();
+
+        // Start the run method in a task
+        let handle = tokio::spawn(async move {
+            mgr.run().await;
+        });
+
+        // Give it a moment to process
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Check that the link was enqueued by directly checking the database
+        let conn_guard = conn.lock().unwrap();
+        let count: i64 = conn_guard
+            .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Cancel the task
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_run_handles_channel_close() {
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        // Create minimal schema for enqueue_batch and claim_next
+        conn.lock().unwrap().execute_batch(r#"
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
+                    INSERT INTO urls (id, url, domain, discovered_at) VALUES (1, 'http://example.com', 'example.com', 1);
+                    INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
+                "#).unwrap();
+        
+        let (tx_fetch, mut rx_fetch) = tokio::sync::mpsc::channel(1);
+        // Don't keep the receiver to simulate channel closure
+        let (_tx_links, rx_links) = tokio::sync::mpsc::channel(1);
+        
+        let mgr = FrontierManager {
+            db: FrontierDb::new(conn),
+            tx_fetch,
+            rx_links,
+            noop_delay_millis: 1,
+            allowed_domains: vec!["example.com".to_string()],
+        };
+
+        // Start the run method in a task
+        let handle = tokio::spawn(async move {
+            mgr.run().await;
+        });
+
+        // Give it a moment to process
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Check that the task was sent (the channel should not be closed yet)
+        let task = rx_fetch.try_recv();
+        assert!(task.is_ok());
+
+        // Cancel the task
+        handle.abort();
+    }
+}

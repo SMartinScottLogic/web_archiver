@@ -13,13 +13,13 @@ mod util;
 
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
+use frontier::db::frontier::FrontierDb;
 use frontier::frontier_manager::FrontierManager;
 use storage::archive::storage_loop;
-use frontier::db::frontier::FrontierDb;
 use tokio::sync::Semaphore;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing::info;
 use types::messages::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 
 use config::settings::DomainConfig;
