@@ -19,6 +19,7 @@ use frontier::db::frontier::FrontierDb;
 use tokio::sync::Semaphore;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing::info;
 use types::messages::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 
 use config::settings::DomainConfig;
@@ -60,7 +61,7 @@ async fn main() {
         .with_thread_names(true) // show thread names
         .with_span_events(FmtSpan::NONE)
         .init();
-    tracing::info!("Starting Web Archiver (Week 1 Skeleton)");
+    info!("Starting Web Archiver (Week 1 Skeleton)");
 
     // --- 2. Seed URLs ---
     let seed_urls = domain_config.seed_urls.clone().unwrap_or_default();
@@ -124,5 +125,5 @@ async fn main() {
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for Ctrl-C");
-    tracing::info!("Shutting down");
+    info!("Shutting down");
 }
