@@ -12,25 +12,26 @@ impl FrontierDb {
         Self { conn }
     }
 
-    /// Insert a new fetch task if not already present (deduplication by URL)
-    pub fn enqueue(&self, task: &FetchTask) -> Result<()> {
-        // Insert URL if not present
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT OR IGNORE INTO urls (url, domain, discovered_at) VALUES (?1, ?2, strftime('%s','now'))",
-            params![&task.url, crate::util::extract_domain(&task.url).unwrap_or_default()],
-        )?;
-        // Get url_id
-        let url_id: i64 = conn.query_row(
-            "SELECT id FROM urls WHERE url = ?1",
-            params![&task.url],
-            |row| row.get(0),
-        )?;
-        // Insert into frontier if not present
-        conn.execute(
-            "INSERT OR IGNORE INTO frontier (url_id, priority, depth, discovered_from, status) VALUES (?1, ?2, ?3, ?4, 'pending')",
-            params![url_id, task.priority, task.depth, task.discovered_from],
-        )?;
+    /// Batch insert fetch tasks (deduplication by URL)
+    pub fn enqueue_batch(&self, tasks: &[FetchTask]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for task in tasks {
+            tx.execute(
+                "INSERT OR IGNORE INTO urls (url, domain, discovered_at) VALUES (?1, ?2, strftime('%s','now'))",
+                params![&task.url, crate::util::extract_domain(&task.url).unwrap_or_default()],
+            )?;
+            let url_id: i64 = tx.query_row(
+                "SELECT id FROM urls WHERE url = ?1",
+                params![&task.url],
+                |row: &rusqlite::Row<'_>| row.get(0),
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO frontier (url_id, priority, depth, discovered_from, status) VALUES (?1, ?2, ?3, ?4, 'pending')",
+                params![url_id, task.priority, task.depth, task.discovered_from],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

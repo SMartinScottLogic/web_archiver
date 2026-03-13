@@ -4,7 +4,7 @@ use crate::util::canonicalize_url;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 /// Minimal Week 1 frontier manager.
 /// Maintains in-memory queue and seen cache, sends FetchTasks to workers.
@@ -26,18 +26,21 @@ impl FrontierManager {
         db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
         let db = FrontierDb::new(db_conn.clone());
-        // Insert seed URLs into DB
+        // Batch insert seed URLs into DB
+        let mut seeds = Vec::new();
         for url in seed_urls {
             if let Some(canonical) = canonicalize_url(&url) {
-                let task = FetchTask {
+                seeds.push(FetchTask {
                     url_id: 0, // Will be set by DB
                     url: canonical,
                     depth: 0,
                     priority: 0,
                     discovered_from: None,
-                };
-                let _ = db.enqueue(&task);
+                });
             }
+        }
+        if !seeds.is_empty() {
+            let _ = db.enqueue_batch(&seeds);
         }
         Self {
             db,
@@ -65,7 +68,7 @@ impl FrontierManager {
             let fetched = self.db.count_fetched().unwrap_or(0);
             let pending = self.db.count_pending().unwrap_or(0);
             let total = fetched + pending;
-            tracing::info!(fetched, total, "Frontier progress: {}/{} pages fetched", fetched, total);
+            info!(fetched, total, "Frontier progress");
 
             debug!(
                 "receiving links ({}/{})",
@@ -84,6 +87,7 @@ impl FrontierManager {
     }
 
     fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
+        let mut batch = Vec::new();
         for link in msg.links {
             if !crate::util::url::is_http_url(&link) {
                 trace!("Skipping non-http link: {}", link);
@@ -99,14 +103,16 @@ impl FrontierManager {
                 trace!("Skipping link with no domain: {}", link);
                 continue;
             }
-            let task = FetchTask {
+            batch.push(FetchTask {
                 url_id: 0, // Will be set by DB
                 url: link,
                 depth: msg.depth,
                 priority: 0,
                 discovered_from: Some(msg.parent_url_id),
-            };
-            let _ = self.db.enqueue(&task);
+            });
+        }
+        if !batch.is_empty() {
+            let _ = self.db.enqueue_batch(&batch);
         }
     }
 }
