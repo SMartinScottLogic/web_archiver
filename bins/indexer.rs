@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::env;
 use csv::create_archive_index;
+use std::env;
 
 mod csv;
 

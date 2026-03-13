@@ -1,4 +1,5 @@
 use crate::types::messages::ExtractedPage;
+use crate::frontier::db::frontier::FrontierDb;
 use crate::util::hash_url;
 use anyhow::Result;
 use chrono::Datelike;
@@ -6,10 +7,18 @@ use std::fs::{File, create_dir_all};
 use tokio::sync::mpsc::Receiver;
 use tracing::{error, info};
 
-pub async fn storage_loop(mut rx: Receiver<ExtractedPage>) {
+pub async fn storage_loop(mut rx: Receiver<ExtractedPage>, db: FrontierDb) {
     while let Some(page) = rx.recv().await {
-        if let Err(e) = store_page(&page) {
-            error!("Failed to store {}: {}", page.task.url, e);
+        match store_page(&page) {
+            Ok(_) => {
+                // Mark as complete in the DB
+                if let Err(e) = db.mark_complete(page.task.url_id) {
+                    error!("Failed to mark complete for {}: {}", page.task.url, e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to store {}: {}", page.task.url, e);
+            }
         }
     }
 }
