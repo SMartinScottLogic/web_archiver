@@ -9,7 +9,7 @@ use tracing::{debug, error, info, trace};
 /// Minimal Week 1 frontier manager.
 /// Maintains in-memory queue and seen cache, sends FetchTasks to workers.
 pub struct FrontierManager {
-    db: FrontierDb,
+    pub db: FrontierDb,
     tx_fetch: Sender<FetchTask>,
     rx_links: Receiver<DiscoveredLinks>,
     noop_delay_millis: u64,
@@ -86,7 +86,7 @@ impl FrontierManager {
         }
     }
 
-    fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
+    pub fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
             if !crate::util::url::is_http_url(&link) {
