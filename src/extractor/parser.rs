@@ -42,9 +42,10 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
     for element in document.select(&selector) {
         if let Some(href) = element.value().attr("href")
             && let Some(resolved) = resolve_relative_link(&fetched.task.url, href)
-                && let Some(canon) = canonicalize_url(&resolved) {
-                    links.push(canon);
-                }
+            && let Some(canon) = canonicalize_url(&resolved)
+        {
+            links.push(canon);
+        }
     }
 
     debug!(

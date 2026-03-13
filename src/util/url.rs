@@ -37,9 +37,10 @@ pub fn canonicalize_url(input: &str) -> Option<String> {
     let mut normalized = format!("{}://{}", scheme, host);
 
     if let Some(port) = url.port()
-        && !is_default_port(&scheme, port) {
-            normalized.push_str(&format!(":{}", port));
-        }
+        && !is_default_port(&scheme, port)
+    {
+        normalized.push_str(&format!(":{}", port));
+    }
 
     normalized.push_str(url.path());
 

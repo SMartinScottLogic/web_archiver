@@ -59,10 +59,11 @@ fn remove_markdown_links(md: &str) -> String {
         if let Some(end_text) = rest[start..].find(']') {
             let after_text = &rest[start + end_text + 1..];
             if after_text.starts_with('(')
-                && let Some(end_url) = after_text.find(')') {
-                    rest = &after_text[end_url + 1..];
-                    continue;
-                }
+                && let Some(end_url) = after_text.find(')')
+            {
+                rest = &after_text[end_url + 1..];
+                continue;
+            }
             output.push_str(&rest[start..start + end_text + 1]);
             rest = after_text;
         } else {

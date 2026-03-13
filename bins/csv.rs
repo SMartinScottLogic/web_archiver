@@ -1,8 +1,8 @@
-use web_archiver::types::messages::ExtractedPage;
 use anyhow::Result;
 use csv::{Writer, WriterBuilder};
 use std::fs::{File, read_dir};
 use std::path::Path;
+use web_archiver::types::messages::ExtractedPage;
 
 /// Generate a temporary CSV index of the archive
 /// Each row: url, json_file_path

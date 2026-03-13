@@ -1,25 +1,26 @@
 use clap::Parser;
+use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+mod config;
 mod extractor;
 mod fetcher;
 mod frontier;
 mod storage;
 mod types;
 mod util;
-mod config;
 
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
 use frontier::frontier_manager::FrontierManager;
 use storage::archive::storage_loop;
+use frontier::db::frontier::FrontierDb;
 use tokio::sync::Semaphore;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use types::messages::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 
-use frontier::db::Db;
 use config::settings::DomainConfig;
 
 /// Command line arguments
@@ -40,19 +41,17 @@ async fn main() {
     let args = Args::parse();
 
     // Load allowed domains config
-    let domain_config = DomainConfig::load_from_file("config.yaml")
-        .expect("Failed to load allowed_domains.yaml");
+    let domain_config =
+        DomainConfig::load_from_file("config.yaml").expect("Failed to load allowed_domains.yaml");
 
     let noop_delay_millis = args.noop_delay_millis;
 
     // Use CLI value if present, else config, else fallback
-    let max_concurrent = args.workers
-        .or(domain_config.workers)
-        .unwrap_or(1);
+    let max_concurrent = args.workers.or(domain_config.workers).unwrap_or(1);
 
-
-    let db = Db::new("crawler.db").expect("failed to open DB");
-    let _db = Arc::new(Mutex::new(db.conn));
+    let conn = Connection::open("crawler.db").expect("failed to open DB");
+    frontier::db::schema::init_schema(&conn).expect("failed to init schema");
+    let db_arc = Arc::new(Mutex::new(conn));
 
     // --- 1. Initialize logging ---
     tracing_subscriber::fmt()
@@ -64,10 +63,7 @@ async fn main() {
     tracing::info!("Starting Web Archiver (Week 1 Skeleton)");
 
     // --- 2. Seed URLs ---
-    let seed_urls = domain_config
-        .seed_urls
-        .clone()
-        .unwrap_or_default();
+    let seed_urls = domain_config.seed_urls.clone().unwrap_or_default();
 
     // --- 3. Create channels ---
     // Frontier → Worker
@@ -80,8 +76,14 @@ async fn main() {
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
     // --- 4. Spawn Frontier Manager ---
-    let frontier_manager =
-        FrontierManager::new(seed_urls, tx_fetch.clone(), rx_links, noop_delay_millis, domain_config.allowed_domains);
+    let frontier_manager = FrontierManager::new(
+        seed_urls,
+        tx_fetch.clone(),
+        rx_links,
+        noop_delay_millis,
+        domain_config.allowed_domains,
+        db_arc.clone(),
+    );
     tokio::spawn(async move {
         frontier_manager.run().await;
     });
@@ -113,8 +115,9 @@ async fn main() {
     });
 
     // --- 7. Spawn Storage Task ---
+    let storage_db = FrontierDb::new(db_arc.clone());
     tokio::spawn(async move {
-        storage_loop(rx_extracted).await;
+        storage_loop(rx_extracted, storage_db).await;
     });
 
     // --- 8. Wait forever ---

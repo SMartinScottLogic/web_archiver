@@ -1,14 +1,15 @@
+use crate::frontier::db::frontier::FrontierDb;
 use crate::types::messages::{DiscoveredLinks, FetchTask};
 use crate::util::canonicalize_url;
-use std::collections::{HashSet, VecDeque};
+use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, trace};
 
 /// Minimal Week 1 frontier manager.
 /// Maintains in-memory queue and seen cache, sends FetchTasks to workers.
 pub struct FrontierManager {
-    queue: VecDeque<FetchTask>,
-    seen: HashSet<String>,
+    db: FrontierDb,
     tx_fetch: Sender<FetchTask>,
     rx_links: Receiver<DiscoveredLinks>,
     noop_delay_millis: u64,
@@ -22,26 +23,24 @@ impl FrontierManager {
         rx_links: Receiver<DiscoveredLinks>,
         noop_delay_millis: u64,
         allowed_domains: Vec<String>,
+        db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
-        let mut queue = VecDeque::new();
-        let mut seen = HashSet::new();
-
-        for (i, url) in seed_urls.into_iter().enumerate() {
+        let db = FrontierDb::new(db_conn.clone());
+        // Insert seed URLs into DB
+        for url in seed_urls {
             if let Some(canonical) = canonicalize_url(&url) {
-                seen.insert(canonical.clone());
-                queue.push_back(FetchTask {
-                    url_id: i as i64,
+                let task = FetchTask {
+                    url_id: 0, // Will be set by DB
                     url: canonical,
                     depth: 0,
                     priority: 0,
                     discovered_from: None,
-                });
+                };
+                let _ = db.enqueue(&task);
             }
         }
-
         Self {
-            queue,
-            seen,
+            db,
             tx_fetch,
             rx_links,
             noop_delay_millis,
@@ -51,31 +50,23 @@ impl FrontierManager {
 
     pub async fn run(mut self) {
         loop {
-            // --- 1. Dispatch tasks if queue not empty ---
-            debug!("dispatching tasks ({})", self.queue.len());
-            // while let Some(task) = self.queue.pop_front() {
-            //     debug!("dispatch task {:?} ({}/{})", &task, self.tx_fetch.capacity(), self.tx_fetch.max_capacity());
-            //     if (self.tx_fetch.send(task).await).is_err() {
-            //         error!("Worker channel closed, frontier stopping");
-            //         return;
-            //     }
-            //     debug!("queue capacity: {}", self.queue.len());
-            // }
+            // --- 1. Dispatch tasks from DB queue ---
             if self.tx_fetch.capacity() > 0
-                && let Some(task) = self.queue.pop_front()
+                && let Ok(Some(task)) = self.db.claim_next()
             {
-                debug!(
-                    "dispatch task {:?} ({}/{})",
-                    &task,
-                    self.tx_fetch.capacity(),
-                    self.tx_fetch.max_capacity()
-                );
+                debug!("dispatch task {:?}", &task);
                 if (self.tx_fetch.send(task).await).is_err() {
                     error!("Worker channel closed, frontier stopping");
                     return;
                 }
-                debug!("queue capacity: {}", self.queue.len());
             }
+
+            // --- LOG: Show fetched and total pages ---
+            let fetched = self.db.count_fetched().unwrap_or(0);
+            let pending = self.db.count_pending().unwrap_or(0);
+            let total = fetched + pending;
+            tracing::info!(fetched, total, "Frontier progress: {}/{} pages fetched", fetched, total);
+
             debug!(
                 "receiving links ({}/{})",
                 self.rx_links.capacity(),
@@ -94,9 +85,6 @@ impl FrontierManager {
 
     fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         for link in msg.links {
-            if self.seen.contains(&link) {
-                continue;
-            }
             if !crate::util::url::is_http_url(&link) {
                 trace!("Skipping non-http link: {}", link);
                 continue;
@@ -111,17 +99,14 @@ impl FrontierManager {
                 trace!("Skipping link with no domain: {}", link);
                 continue;
             }
-            self.seen.insert(link.clone());
-
-            let next_id = self.seen.len() as i64; // simple ID
             let task = FetchTask {
-                url_id: next_id,
+                url_id: 0, // Will be set by DB
                 url: link,
                 depth: msg.depth,
                 priority: 0,
                 discovered_from: Some(msg.parent_url_id),
             };
-            self.queue.push_back(task);
+            let _ = self.db.enqueue(&task);
         }
     }
 }
