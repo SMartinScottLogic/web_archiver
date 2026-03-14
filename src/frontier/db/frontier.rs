@@ -12,6 +12,18 @@ impl FrontierDb {
         Self { conn }
     }
 
+    /// Reset 'in_progress' tasks to 'pending'
+    pub fn reset_in_progress(&self) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let updated = tx.execute(
+            "UPDATE frontier SET status = 'pending' WHERE status = 'in_progress'",
+            params![],
+        )?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
     /// Batch insert fetch tasks (deduplication by URL)
     pub fn enqueue_batch(&self, tasks: &[FetchTask]) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
@@ -44,7 +56,7 @@ impl FrontierDb {
                 "SELECT f.url_id, u.url, f.depth, f.priority, f.discovered_from \
                  FROM frontier f JOIN urls u ON f.url_id = u.id \
                  WHERE f.status = 'pending' \
-                 ORDER BY f.priority DESC LIMIT 1",
+                 ORDER BY (f.priority-f.depth) DESC LIMIT 1",
             )?;
             stmt.query_map([], |row| {
                 Ok(FetchTask {
