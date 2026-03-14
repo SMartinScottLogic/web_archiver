@@ -31,6 +31,11 @@ impl FrontierManager {
         db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
         let db = FrontierDb::new(db_conn.clone());
+        // Reset in_progress tasks (so they can be restarted)
+        let updated = db
+            .reset_in_progress()
+            .expect("Failed to reset in_progress tasks");
+        info!("Reset {} in_progress tasks", updated);
         // Batch insert seed URLs into DB
         let mut seeds = Vec::new();
         for url in seed_urls {
