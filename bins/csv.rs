@@ -69,7 +69,9 @@ mod tests {
                 title: Some("Test".to_string()),
             },
         };
-        let json_path = archive_root.join("test.json");
+        let inner = "inner";
+        fs::create_dir(archive_root.join(inner)).unwrap();
+        let json_path = archive_root.join(inner).join("test.json");
         let file = File::create(&json_path).unwrap();
         serde_json::to_writer_pretty(file, &page).unwrap();
 

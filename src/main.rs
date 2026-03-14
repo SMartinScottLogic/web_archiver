@@ -82,7 +82,7 @@ async fn main() {
         tx_fetch.clone(),
         rx_links,
         noop_delay_millis,
-        domain_config.allowed_domains,
+        domain_config.hosts,
         db_arc.clone(),
     );
     tokio::spawn(async move {
