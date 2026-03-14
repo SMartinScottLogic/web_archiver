@@ -2,7 +2,9 @@ use crate::config::settings::Host;
 use crate::frontier::db::frontier::FrontierDb;
 use crate::types::messages::{DiscoveredLinks, FetchTask};
 use crate::util::canonicalize_url;
+use reqwest::Client;
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace};
@@ -15,6 +17,8 @@ pub struct FrontierManager {
     rx_links: Receiver<DiscoveredLinks>,
     noop_delay_millis: u64,
     hosts: Vec<Host>,
+    robots_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
+    http_client: Client,
 }
 
 impl FrontierManager {
@@ -49,6 +53,8 @@ impl FrontierManager {
             rx_links,
             noop_delay_millis,
             hosts,
+            robots_cache: Arc::new(Mutex::new(HashMap::new())),
+            http_client: Client::new(),
         }
     }
 
@@ -79,7 +85,7 @@ impl FrontierManager {
             // --- 2. Receive discovered links ---
             while let Ok(msg) = self.rx_links.try_recv() {
                 debug!("receive {} links", msg.links.len());
-                self.process_discovered_links(msg);
+                self.process_discovered_links(msg).await;
             }
 
             // --- 3. Sleep a bit to avoid busy loop ---
@@ -87,7 +93,7 @@ impl FrontierManager {
         }
     }
 
-    pub fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
+    pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
             if !crate::util::url::is_http_url(&link) {
@@ -101,7 +107,15 @@ impl FrontierManager {
                     trace!("Skipping link outside allowed domains: {}", link);
                     continue;
                 } else {
-                    info!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
+                    debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
+                }
+
+                // Check robots.txt rules
+                if !self.is_url_allowed(&link, &domain).await {
+                    debug!("Skipping link blocked by robots.txt: {}", link);
+                    continue;
+                } else {
+                    trace!("Link permitted by robots.txt: {}", link);
                 }
             } else {
                 trace!("Skipping link with no domain: {}", link);
@@ -126,6 +140,62 @@ impl FrontierManager {
             .filter(|&host| host.domains.iter().any(|d| d == domain))
             .collect()
     }
+
+    /// Check if a URL is allowed by robots.txt rules for its domain
+    async fn is_url_allowed(&mut self, url: &str, domain: &str) -> bool {
+        let mut matcher = robotstxt::DefaultMatcher::default();
+        // Try to get robots.txt from cache
+        let v = {
+            let cache = self.robots_cache.lock().unwrap();
+            cache.get(domain).map(|v| v.to_owned())
+        };
+        let r = match v {
+            Some(Some(robots_txt)) => robots_txt,
+            Some(None) => {
+                return true;
+            }
+            None => match self.fetch_robots_txt(domain).await {
+                Some(r) => r,
+                None => {
+                    return true;
+                }
+            },
+        };
+        // Check if URL is allowed by robots.txt rules
+        matcher.one_agent_allowed_by_robots(&r, "Week1Crawler", url)
+        //robots_txt.is_allowed(url, "*")
+    }
+
+    /// Fetch and parse robots.txt for a domain
+    async fn fetch_robots_txt(&mut self, domain: &str) -> Option<String> {
+        let robots_url = format!("http://{}{}", domain, "/robots.txt");
+
+        let robots_txt = match self.http_client.get(&robots_url).send().await {
+            Ok(resp) => match resp.text().await {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    error!("error reading robots.txt from {}: {:?}", robots_url, e);
+                    None
+                }
+            },
+            Err(e) => {
+                debug!("error fetching robots.txt from {}: {:?}", robots_url, e);
+                None
+            }
+        };
+        debug!(
+            "robots found for {} {}: {:?}",
+            domain, robots_url, &robots_txt
+        );
+
+        // Cache the robots.txt
+        {
+            let mut cache = self.robots_cache.lock().unwrap();
+            cache.insert(domain.to_string(), robots_txt.clone());
+        }
+
+        robots_txt
+    }
 }
 
 #[cfg(test)]
@@ -143,17 +213,22 @@ mod tests {
                     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, domain TEXT, discovered_at INTEGER);
                     CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
                 "#).unwrap();
+        let mut cache = HashMap::new();
+        cache.insert("foo.com".to_string(), None);
+        cache.insert("example.com".to_string(), None);
         FrontierManager {
             db: FrontierDb::new(conn),
             tx_fetch: tokio::sync::mpsc::channel(1).0,
             rx_links: tokio::sync::mpsc::channel(1).1,
             noop_delay_millis: 1,
             hosts,
+            robots_cache: Arc::new(Mutex::new(cache)),
+            http_client: Client::new(),
         }
     }
 
-    #[test]
-    fn test_process_discovered_links_skips_non_http() {
+    #[tokio::test]
+    async fn test_process_discovered_links_skips_non_http() {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
@@ -166,7 +241,7 @@ mod tests {
             ],
             depth: 1,
         };
-        mgr.process_discovered_links(msg);
+        mgr.process_discovered_links(msg).await;
         // Should not enqueue anything
         let conn = mgr.db.conn.lock().unwrap();
         let count: i64 = conn
@@ -175,8 +250,8 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[test]
-    fn test_process_discovered_links_skips_disallowed_domain() {
+    #[tokio::test]
+    async fn test_process_discovered_links_skips_disallowed_domain() {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
@@ -186,7 +261,7 @@ mod tests {
             links: vec!["http://bar.com/page".to_string()],
             depth: 1,
         };
-        mgr.process_discovered_links(msg);
+        mgr.process_discovered_links(msg).await;
         let conn = mgr.db.conn.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
@@ -194,8 +269,8 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[test]
-    fn test_process_discovered_links_skips_no_domain() {
+    #[tokio::test]
+    async fn test_process_discovered_links_skips_no_domain() {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
@@ -205,7 +280,7 @@ mod tests {
             links: vec!["http://bar.com/page".to_string()],
             depth: 1,
         };
-        mgr.process_discovered_links(msg);
+        mgr.process_discovered_links(msg).await;
         let conn = mgr.db.conn.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
@@ -213,8 +288,8 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[test]
-    fn test_process_discovered_links_enqueues_valid() {
+    #[tokio::test]
+    async fn test_process_discovered_links_enqueues_valid() {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
@@ -224,7 +299,7 @@ mod tests {
             links: vec!["http://foo.com/page".to_string()],
             depth: 2,
         };
-        mgr.process_discovered_links(msg);
+        mgr.process_discovered_links(msg).await;
         let conn = mgr.db.conn.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
@@ -259,6 +334,8 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            robots_cache: Arc::new(Mutex::new(HashMap::new())),
+            http_client: Client::new(),
         };
 
         // Start the run method in a task but don't move mgr afterwards
@@ -289,6 +366,8 @@ mod tests {
         let (tx_fetch, _rx_fetch) = tokio::sync::mpsc::channel(1);
         let (tx_links, rx_links) = tokio::sync::mpsc::channel(1);
 
+        let mut cache = HashMap::new();
+        cache.insert("example.com".to_string(), None);
         // Create manager with the same connection
         let mgr = FrontierManager {
             db: FrontierDb::new(conn.clone()),
@@ -299,6 +378,8 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            robots_cache: Arc::new(Mutex::new(cache)),
+            http_client: Client::new(),
         };
 
         // Send a link message
@@ -315,7 +396,7 @@ mod tests {
         });
 
         // Give it a moment to process
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
 
         // Check that the link was enqueued by directly checking the database
         let conn_guard = conn.lock().unwrap();
@@ -352,6 +433,8 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            robots_cache: Arc::new(Mutex::new(HashMap::new())),
+            http_client: Client::new(),
         };
 
         // Start the run method in a task

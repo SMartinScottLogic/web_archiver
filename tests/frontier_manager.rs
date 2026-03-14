@@ -84,7 +84,7 @@ async fn test_process_discovered_links_batching_and_filtering() {
         depth: 1,
         parent_url_id: 1,
     };
-    mgr.process_discovered_links(msg);
+    mgr.process_discovered_links(msg).await;
     // Only http://foo.com/page1 should be enqueued
     let t = mgr.db.claim_next().unwrap().unwrap();
     assert_eq!(t.url, "http://foo.com/page1");

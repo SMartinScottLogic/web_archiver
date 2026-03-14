@@ -17,7 +17,7 @@ path = "bins/indexer.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13", features = ["gzip","brotli","deflate"] }
+reqwest = { version = "0.13", features = ["json", "gzip","brotli","deflate"] }
 scraper = "0.25"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +35,5 @@ csv = "1.2"
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive"] }
 tempfile = "3.27.0"
+robotstxt = "0.3"
+
