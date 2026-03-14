@@ -1,22 +1,28 @@
 use anyhow::Result;
+use clap::Parser;
 use csv::create_archive_index;
-use std::env;
 
 mod csv;
 
+#[derive(Parser, Debug)]
+#[clap(
+    name = "archive_indexer",
+    version = "0.1.1",
+    about = "Create an index of archive files"
+)]
+struct Args {
+    /// Archive root directory
+    #[clap(value_name = "ARCHIVE_ROOT")]
+    archive_root: String,
+
+    /// Output CSV file
+    #[clap(value_name = "OUTPUT_CSV")]
+    output_csv: String,
+}
 fn main() -> Result<()> {
-    // Arguments: archive_root output_csv
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: {} <archive_root> <output_csv>", args[0]);
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let archive_root = &args[1];
-    let output_csv = &args[2];
-
-    create_archive_index(archive_root, output_csv)?;
-    println!("Archive index written to {}", output_csv);
-
+    create_archive_index(&args.archive_root, &args.output_csv)?;
+    println!("Archive index written to {}", args.output_csv);
     Ok(())
 }

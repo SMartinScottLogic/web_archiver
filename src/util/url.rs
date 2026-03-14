@@ -106,6 +106,24 @@ mod tests {
     }
 
     #[test]
+    fn test_canonicalize_url_http_custom_port() {
+        let url = "HTTP://Example.com:8080/foo?bar#frag";
+        assert_eq!(
+            canonicalize_url(url),
+            Some("http://example.com:8080/foo?bar".to_string())
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_url_https_custom_port() {
+        let url = "HTTPS://Example.com:8080/foo?bar#frag";
+        assert_eq!(
+            canonicalize_url(url),
+            Some("https://example.com:8080/foo?bar".to_string())
+        );
+    }
+
+    #[test]
     fn test_extract_domain() {
         let url = "https://news.ycombinator.com/item?id=1";
         assert_eq!(

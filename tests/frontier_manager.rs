@@ -3,10 +3,11 @@
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use web_archiver::config::settings::Host;
 use web_archiver::frontier::frontier_manager::FrontierManager;
 use web_archiver::types::messages::DiscoveredLinks;
 
-fn setup_manager(seed_urls: Vec<String>, allowed_domains: Vec<String>) -> FrontierManager {
+fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         r#"
@@ -36,7 +37,7 @@ fn setup_manager(seed_urls: Vec<String>, allowed_domains: Vec<String>) -> Fronti
         tx_fetch,
         rx_links,
         1,
-        allowed_domains,
+        hosts,
         Arc::new(Mutex::new(conn)),
     )
 }
@@ -45,7 +46,16 @@ fn setup_manager(seed_urls: Vec<String>, allowed_domains: Vec<String>) -> Fronti
 async fn test_seed_batch_insertion_and_claim() {
     let mgr = setup_manager(
         vec!["http://foo.com".to_string(), "http://bar.com".to_string()],
-        vec!["foo.com".to_string(), "bar.com".to_string()],
+        vec![
+            Host {
+                name: "Foo".to_string(),
+                domains: vec!["foo.com".to_string()],
+            },
+            Host {
+                name: "Bar".to_string(),
+                domains: vec!["bar.com".to_string()],
+            },
+        ],
     );
     // Should be able to claim both seeds
     let t1 = mgr.db.claim_next().unwrap().unwrap();
@@ -58,7 +68,13 @@ async fn test_seed_batch_insertion_and_claim() {
 
 #[tokio::test]
 async fn test_process_discovered_links_batching_and_filtering() {
-    let mut mgr = setup_manager(vec![], vec!["foo.com".to_string()]);
+    let mut mgr = setup_manager(
+        vec![],
+        vec![Host {
+            name: "Foo".to_string(),
+            domains: vec!["foo.com".to_string()],
+        }],
+    );
     let msg = DiscoveredLinks {
         links: vec![
             "http://foo.com/page1".to_string(),
