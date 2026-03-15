@@ -1,10 +1,14 @@
+use std::collections::HashSet;
+
 use crate::types::messages::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
 use crate::util::html_to_markdown;
 use crate::util::{canonicalize_url, resolve_relative_link};
 use anyhow::Result;
+use lazy_static::lazy_static;
+use map_macro::hash_map;
 use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::debug;
+use tracing::{debug, trace};
 
 pub async fn extractor_loop(
     mut rx: Receiver<FetchedPage>,
@@ -32,10 +36,35 @@ pub async fn extractor_loop(
     }
 }
 
+lazy_static! {
+    static ref IGNORE_DOCUMENT_METADATA: HashSet<&'static str> = {
+        let mut meta = HashSet::new();
+        meta.insert("viewport");
+        meta.insert("twitter:title");
+        meta.insert("twitter:description");
+        meta.insert("twitter:card");
+        meta.insert("twitter:site");
+        meta.insert("twitter:image");
+        meta
+    };
+}
+
 async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, DiscoveredLinks)> {
     let html = String::from_utf8_lossy(&fetched.body);
     let document = Html::parse_document(&html);
 
+    // Extract document metadata
+    let selector = Selector::parse("meta[name]").unwrap();
+    let mut meta = vec![];
+    for element in document.select(&selector) {
+        if let Some(name) = element.value().attr("name")
+            && let Some(content) = element.value().attr("content")
+            && !IGNORE_DOCUMENT_METADATA.contains(name)
+        {
+            meta.push(hash_map!["name".to_string() => name.to_string(), "content".to_string() => content.to_string()]);
+            trace!(name, content, url = fetched.task.url, "metadata");
+        }
+    }
     // Extract <a href> links
     let selector = Selector::parse("a[href]").unwrap();
     let mut links = vec![];
@@ -70,6 +99,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
                 .select(&Selector::parse("title").unwrap())
                 .next()
                 .map(|e| e.text().collect::<String>()),
+            document_metadata: meta,
         },
     };
 
@@ -110,6 +140,37 @@ mod tests {
         assert!(extracted.content_markdown.is_some());
         assert_eq!(discovered.links.len(), 1);
         assert!(discovered.links[0].contains("foo.com/bar"));
+    }
+
+    #[tokio::test]
+    async fn test_extract_page_metadata() {
+        let html = b"<html><head><meta name='test' content='test content' /></head><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let fetched = FetchedPage {
+            task: FetchTask {
+                url_id: 1,
+                url: "https://foo.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            status_code: 200,
+            content_type: Some("text/html".to_string()),
+            fetch_time: 0,
+            body: Arc::new(html),
+        };
+        let (extracted, discovered) = extract_page(fetched).await.unwrap();
+        assert!(extracted.content_markdown.is_some());
+        assert_eq!(discovered.links.len(), 1);
+        assert!(discovered.links[0].contains("foo.com/bar"));
+        assert_eq!(extracted.metadata.document_metadata.len(), 1);
+        assert_eq!(
+            extracted.metadata.document_metadata[0].get("name"),
+            Some("test".to_string()).as_ref()
+        );
+        assert_eq!(
+            extracted.metadata.document_metadata[0].get("content"),
+            Some("test content".to_string()).as_ref()
+        );
     }
 
     #[tokio::test]

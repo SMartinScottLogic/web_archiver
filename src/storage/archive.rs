@@ -66,6 +66,7 @@ mod tests {
                 content_type: Some("text/html".to_string()),
                 fetch_time: 0,
                 title: Some("Test".to_string()),
+                document_metadata: vec![],
             },
         };
         let result = store_page(&page);
@@ -154,6 +155,7 @@ mod tests {
                 content_type: Some("text/html".to_string()),
                 fetch_time: 0,
                 title: Some("Test".to_string()),
+                document_metadata: vec![],
             },
         };
         tx.send(page).await.unwrap();
