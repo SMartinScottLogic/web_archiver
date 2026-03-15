@@ -29,9 +29,9 @@ A high-performance, resumable web archiver and crawler written in Rust. Designed
 
 4. **Run the crawler:**
    ```sh
-   cargo run --release
+   cargo run --bin web_archiver --release
    # or override workers:
-   cargo run --release -- --workers 8
+   cargo run --bin web_archiver --release -- --workers 8
    ```
 
 5. **Archives** are written to `archive/<domain>/<year>/<month>/<hash>.json`
@@ -80,7 +80,7 @@ Extractor / Parser
 
 ## Indexing
 
-A separate binary (`bins/indexer.rs`) can index the archive and produce a CSV mapping URLs to JSON files.
+A separate binary (`archive_indexer`) can index the archive and produce a CSV mapping URLs to JSON files.
 
 ## Extending
 - Add per-domain rules (XPath, robots.txt, etc.)
