@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
     pub url_id: i64,
@@ -41,6 +43,7 @@ pub struct PageMetadata {
     pub content_type: Option<String>,
     pub fetch_time: u64,
     pub title: Option<String>,
+    pub document_metadata: Vec<HashMap<String, String>>,
 }
 
 #[cfg(test)]
@@ -68,6 +71,7 @@ mod tests {
             content_type: Some("text/html".to_string()),
             fetch_time: 123,
             title: Some("Title".to_string()),
+            document_metadata: vec![],
         };
         assert_eq!(meta.status_code, 200);
         assert_eq!(meta.content_type.as_deref(), Some("text/html"));

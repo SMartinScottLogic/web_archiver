@@ -51,6 +51,7 @@ async fn main() {
     let max_concurrent = args.workers.or(domain_config.workers).unwrap_or(1);
 
     let conn = Connection::open("crawler.db").expect("failed to open DB");
+    frontier::db::schema::settings(&conn).expect("failed to set DB performance settings");
     frontier::db::schema::init_schema(&conn).expect("failed to init schema");
     let db_arc = Arc::new(Mutex::new(conn));
 

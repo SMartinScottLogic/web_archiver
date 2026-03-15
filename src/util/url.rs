@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use url::Url;
+use url::{Url, form_urlencoded};
 
 /// Resolve a possibly relative link against a base URL.
 ///
@@ -43,10 +43,28 @@ pub fn canonicalize_url(input: &str) -> Option<String> {
     }
 
     normalized.push_str(url.path());
+    let mut p = url.query_pairs().collect::<Vec<_>>();
+    p.sort_by_cached_key(|(k, _v)| k.to_string());
 
-    if let Some(query) = url.query() {
+    let encoded = p
+        .iter()
+        .fold(
+            form_urlencoded::Serializer::new(String::new()),
+            |mut acc, (k, v)| {
+                if v.is_empty() {
+                    acc.append_key_only(k);
+                } else {
+                    acc.append_pair(k, v);
+                }
+                acc
+            },
+        )
+        .finish();
+    url.set_query(Some(&encoded));
+
+    if !encoded.is_empty() {
         normalized.push('?');
-        normalized.push_str(query);
+        normalized.push_str(&encoded);
     }
 
     Some(normalized)
@@ -124,6 +142,15 @@ mod tests {
     }
 
     #[test]
+    fn test_canonicalize_url_query_order() {
+        let url = "http://example.com/?b[]=2&a=1&b[]=c";
+        assert_eq!(
+            canonicalize_url(url),
+            Some("http://example.com/?a=1&b%5B%5D=2&b%5B%5D=c".to_string())
+        );
+    }
+
+    #[test]
     fn test_extract_domain() {
         let url = "https://news.ycombinator.com/item?id=1";
         assert_eq!(
@@ -143,5 +170,12 @@ mod tests {
         assert!(is_http_url("http://foo.com"));
         assert!(is_http_url("https://foo.com"));
         assert!(!is_http_url("ftp://foo.com"));
+    }
+
+    #[test]
+    fn test_is_default_port() {
+        assert!(is_default_port("http", 80));
+        assert!(is_default_port("https", 443));
+        assert!(!is_default_port("http", 8080));
     }
 }

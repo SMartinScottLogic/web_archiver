@@ -1,5 +1,16 @@
 use rusqlite::{Connection, Result};
 
+pub fn settings(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+    PRAGMA journal_mode=WAL;
+    PRAGMA synchronous=NORMAL;
+    PRAGMA temp_store=MEMORY;
+    PRAGMA cache_size=100000;
+    "#,
+    )
+}
+
 pub fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
@@ -47,9 +58,7 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_urls_domain
         ON urls(domain);
         "#,
-    )?;
-
-    Ok(())
+    )
 }
 
 #[cfg(test)]
