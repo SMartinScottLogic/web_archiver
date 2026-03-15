@@ -104,6 +104,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "archive_indexer"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "common",
+ "csv",
+ "html2md",
+ "lazy_static",
+ "lru",
+ "map-macro",
+ "readability",
+ "reqwest 0.13.2",
+ "robotstxt",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "async-compression"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -312,6 +341,14 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3063,6 +3100,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "common",
  "csv",
  "html2md",
  "lazy_static",

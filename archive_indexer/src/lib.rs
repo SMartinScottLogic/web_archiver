@@ -1,8 +1,8 @@
 use anyhow::Result;
+use common::ExtractedPage;
 use csv::{Writer, WriterBuilder};
 use std::fs::{File, read_dir};
 use std::path::Path;
-use web_archiver::types::messages::ExtractedPage;
 
 /// Generate a temporary CSV index of the archive
 /// Each row: url, json_file_path
@@ -41,10 +41,10 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::{ExtractedPage, FetchTask, PageMetadata};
     use std::fs::{self, File};
     use std::io::Read;
     use tempfile::tempdir;
-    use web_archiver::types::messages::{ExtractedPage, FetchTask, PageMetadata};
 
     #[test]
     fn test_create_archive_index_and_scan_dir() {

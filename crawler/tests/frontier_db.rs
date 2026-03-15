@@ -1,9 +1,9 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
+use common::FetchTask;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use web_archiver::frontier::db::frontier::FrontierDb;
-use web_archiver::types::messages::FetchTask;
 
 fn setup_db() -> FrontierDb {
     let conn = Connection::open_in_memory().unwrap();

@@ -1,11 +1,11 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
+use common::DiscoveredLinks;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use web_archiver::config::settings::Host;
 use web_archiver::frontier::frontier_manager::FrontierManager;
-use web_archiver::types::messages::DiscoveredLinks;
 
 fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
     let conn = Connection::open_in_memory().unwrap();

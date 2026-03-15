@@ -1,4 +1,4 @@
-use crate::types::messages::FetchTask;
+use common::FetchTask;
 use rusqlite::{Connection, Result, params};
 use std::sync::{Arc, Mutex};
 

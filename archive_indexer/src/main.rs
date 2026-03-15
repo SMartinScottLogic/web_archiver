@@ -1,8 +1,6 @@
 use anyhow::Result;
+use archive_indexer::create_archive_index;
 use clap::Parser;
-use csv::create_archive_index;
-
-mod csv;
 
 #[derive(Parser, Debug)]
 #[clap(

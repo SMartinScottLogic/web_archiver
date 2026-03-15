@@ -8,9 +8,9 @@ mod extractor;
 mod fetcher;
 mod frontier;
 mod storage;
-mod types;
 mod util;
 
+use common::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
 use frontier::db::frontier::FrontierDb;
@@ -20,7 +20,6 @@ use tokio::sync::Semaphore;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
-use types::messages::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 
 use config::settings::DomainConfig;
 
