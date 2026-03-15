@@ -39,9 +39,11 @@ A high-performance, resumable web archiver and crawler written in Rust. Designed
 ## Configuration (`config.yaml`)
 
 ```yaml
-allowed_domains:
-  - www.example.com
-  - blog.example.com
+hosts:
+  - name: Example
+    domains:
+    - www.example.com
+    - blog.example.com
 workers: 4
 seed_urls:
   - "https://www.example.com/start"
