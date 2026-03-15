@@ -1,8 +1,8 @@
 use crate::frontier::db::frontier::FrontierDb;
-use crate::types::messages::ExtractedPage;
 use crate::util::hash_url;
 use anyhow::Result;
 use chrono::Datelike;
+use common::ExtractedPage;
 use std::fs::{File, create_dir_all};
 use tokio::sync::mpsc::Receiver;
 use tracing::{error, info};
@@ -46,7 +46,7 @@ fn store_page(page: &ExtractedPage) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::messages::{ExtractedPage, FetchTask, PageMetadata};
+    use common::{ExtractedPage, FetchTask, PageMetadata};
     use std::fs;
 
     #[test]

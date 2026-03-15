@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use crate::types::messages::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
 use crate::util::html_to_markdown;
 use crate::util::{canonicalize_url, resolve_relative_link};
 use anyhow::Result;
+use common::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
 use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};
@@ -117,7 +117,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::messages::FetchTask;
+    use common::FetchTask;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -175,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extractor_loop_sends_outputs() {
-        use crate::types::messages::{DiscoveredLinks, ExtractedPage, FetchedPage};
+        use common::{DiscoveredLinks, ExtractedPage, FetchedPage};
         use std::sync::Arc;
         use tokio::sync::mpsc;
 

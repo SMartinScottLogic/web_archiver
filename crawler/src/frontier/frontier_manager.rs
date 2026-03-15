@@ -1,7 +1,7 @@
 use crate::config::settings::Host;
 use crate::frontier::db::frontier::FrontierDb;
-use crate::types::messages::{DiscoveredLinks, FetchTask};
 use crate::util::canonicalize_url;
+use common::{DiscoveredLinks, FetchTask};
 use reqwest::Client;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -207,7 +207,7 @@ impl FrontierManager {
 mod tests {
     use super::*;
     use crate::frontier::db::frontier::FrontierDb;
-    use crate::types::messages::DiscoveredLinks;
+    use common::DiscoveredLinks;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
 

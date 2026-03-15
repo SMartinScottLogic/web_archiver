@@ -1,5 +1,5 @@
-use crate::types::messages::{FetchTask, FetchedPage};
 use anyhow::Result;
+use common::{FetchTask, FetchedPage};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
 
@@ -57,7 +57,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_loop_single_sends_fetched() {
-        use crate::types::messages::FetchTask;
+        use common::FetchTask;
         use tokio::sync::mpsc;
 
         // Use a known good URL for testing (httpbin.org is reliable for tests)
