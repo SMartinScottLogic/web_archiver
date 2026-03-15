@@ -1,3 +1,3 @@
 [workspace]
-members = ["common", "archive_indexer", "crawler"]
+members = ["common", "archive_indexer", "web_archiver"]
 resolver = "3"
