@@ -27,7 +27,7 @@ pub struct ExtractedPage {
     pub task: FetchTask,
     pub content_markdown: Option<String>,
     pub links: Vec<String>,
-    pub metadata: PageMetadata,
+    pub metadata: Option<PageMetadata>,
 }
 
 #[derive(Clone, Debug)]
@@ -43,7 +43,7 @@ pub struct PageMetadata {
     pub content_type: Option<String>,
     pub fetch_time: u64,
     pub title: Option<String>,
-    pub document_metadata: Vec<HashMap<String, String>>,
+    pub document_metadata: Option<Vec<HashMap<String, String>>>,
 }
 
 #[cfg(test)]
@@ -71,7 +71,7 @@ mod tests {
             content_type: Some("text/html".to_string()),
             fetch_time: 123,
             title: Some("Title".to_string()),
-            document_metadata: vec![],
+            document_metadata: Some(vec![]),
         };
         assert_eq!(meta.status_code, 200);
         assert_eq!(meta.content_type.as_deref(), Some("text/html"));

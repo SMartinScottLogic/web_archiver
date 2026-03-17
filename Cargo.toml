@@ -1,5 +1,10 @@
 [workspace]
-members = ["common", "archive_indexer", "web_archiver"]
+members = [
+    "common", 
+    "archive_indexer", 
+    "vector_indexer", 
+    "web_archiver"
+]
 resolver = "3"
 
 [workspace.dependencies]
@@ -25,3 +30,7 @@ tempfile = "3.27.0"
 robotstxt = "0.3"
 map-macro = "0.3.0"
 lazy_static = "1.5.0"
+qdrant-client = "1"
+tokenizers = "0.15"
+uuid = {version = "1.22.0", features = ["v4"]}                                 # A library to generate and parse UUIDs.
+
