@@ -1,4 +1,3 @@
-use clap::Parser;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -21,39 +20,10 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use config::settings::DomainConfig;
-
-/// Command line arguments
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Delay in ms for frontier manager idle loop
-    #[arg(long, default_value_t = 500)]
-    noop_delay_millis: u64,
-
-    /// Number of concurrent fetch workers (overrides config if set)
-    #[arg(long)]
-    workers: Option<usize>,
-}
+use config::settings::Config;
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
-
-    // Load allowed domains config
-    let domain_config =
-        DomainConfig::load_from_file("config.yaml").expect("Failed to load allowed_domains.yaml");
-
-    let noop_delay_millis = args.noop_delay_millis;
-
-    // Use CLI value if present, else config, else fallback
-    let max_concurrent = args.workers.or(domain_config.workers).unwrap_or(1);
-
-    let conn = Connection::open("crawler.db").expect("failed to open DB");
-    frontier::db::schema::settings(&conn).expect("failed to set DB performance settings");
-    frontier::db::schema::init_schema(&conn).expect("failed to init schema");
-    let db_arc = Arc::new(Mutex::new(conn));
-
     // --- 1. Initialize logging ---
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -63,8 +33,21 @@ async fn main() {
         .init();
     info!("Starting Web Archiver (Week 1 Skeleton)");
 
+    // Load allowed domains config
+    let config = Config::file("config.yaml").expect("Failed to load allowed_domains.yaml");
+
+    let noop_delay_millis = config.noop_delay_millis;
+
+    // Use CLI value if present, else config, else fallback
+    let max_concurrent = config.workers;
+
+    let conn = Connection::open("crawler.db").expect("failed to open DB");
+    frontier::db::schema::settings(&conn).expect("failed to set DB performance settings");
+    frontier::db::schema::init_schema(&conn).expect("failed to init schema");
+    let db_arc = Arc::new(Mutex::new(conn));
+
     // --- 2. Seed URLs ---
-    let seed_urls = domain_config.seed_urls.clone().unwrap_or_default();
+    let seed_urls = config.seed_urls.clone();
 
     // --- 3. Create channels ---
     // Frontier → Worker
@@ -82,7 +65,7 @@ async fn main() {
         tx_fetch.clone(),
         rx_links,
         noop_delay_millis,
-        domain_config.hosts,
+        config.hosts,
         db_arc.clone(),
     );
     tokio::spawn(async move {

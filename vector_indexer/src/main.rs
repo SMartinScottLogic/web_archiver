@@ -5,8 +5,7 @@ use qdrant_client::{
     Qdrant,
     qdrant::{
         CreateCollectionBuilder, Distance, PointStruct, ScalarQuantizationBuilder,
-        SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder,
-        VectorParamsBuilder,
+        SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
     },
 };
 use serde_json::json;
