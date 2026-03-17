@@ -12,6 +12,7 @@ pub struct Config {
     pub workers: usize,
     pub seed_urls: Vec<String>,
     pub noop_delay_millis: u64,
+    pub user_agent: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -27,14 +28,23 @@ pub struct Host {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Delay in ms for frontier manager idle loop
-    #[arg(long)]
+    #[arg(short, long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     noop_delay_millis: Option<u64>,
 
-    /// Number of concurrent fetch workers (overrides config if set)
-    #[arg(long)]
+    /// Number of concurrent fetch workers
+    #[arg(short, long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     workers: Option<usize>,
+
+    /// User Agent to supply for fetches
+    #[arg(short, long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_agent: Option<String>,
+
+    /// Crawl seeds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed_urls: Option<Vec<String>>,
 }
 
 impl Default for Config {
@@ -44,6 +54,7 @@ impl Default for Config {
             workers: 1,
             seed_urls: Default::default(),
             noop_delay_millis: 500,
+            user_agent: "Week1Crawler/0.1".to_string(),
         }
     }
 }
