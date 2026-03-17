@@ -9,3 +9,5 @@
 /scratch
 /tarpaulin-report.html
 /cobertura.xml
+.fastembed_cache/
+onnxruntime-linux-x64*

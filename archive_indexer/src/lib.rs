@@ -62,13 +62,13 @@ mod tests {
             },
             content_markdown: Some("content".to_string()),
             links: vec![],
-            metadata: PageMetadata {
+            metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
                 fetch_time: 0,
                 title: Some("Test".to_string()),
-                document_metadata: vec![],
-            },
+                document_metadata: Some(vec![]),
+            }),
         };
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();
