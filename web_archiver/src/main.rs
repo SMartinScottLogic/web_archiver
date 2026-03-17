@@ -16,7 +16,7 @@ use frontier::db::frontier::FrontierDb;
 use frontier::frontier_manager::FrontierManager;
 use storage::archive::storage_loop;
 use tokio::sync::Semaphore;
-use tracing::info;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -31,14 +31,14 @@ async fn main() {
         .with_thread_names(true) // show thread names
         .with_span_events(FmtSpan::NONE)
         .init();
-    info!("Starting Web Archiver (Week 1 Skeleton)");
+    info!("Starting Web Archiver (Week 2 Skeleton)");
 
     // Load allowed domains config
     let config = Config::file("config.yaml").expect("Failed to load allowed_domains.yaml");
 
-    let noop_delay_millis = config.noop_delay_millis;
+    debug!(?config, "config");
 
-    // Use CLI value if present, else config, else fallback
+    let noop_delay_millis = config.noop_delay_millis;
     let max_concurrent = config.workers;
 
     let conn = Connection::open("crawler.db").expect("failed to open DB");
@@ -61,6 +61,7 @@ async fn main() {
 
     // --- 4. Spawn Frontier Manager ---
     let frontier_manager = FrontierManager::new(
+        config.user_agent.clone(),
         seed_urls,
         tx_fetch.clone(),
         rx_links,
@@ -84,8 +85,9 @@ async fn main() {
             while let Some(task) = rx_fetch.recv().await {
                 let tx_fetched_task = tx_fetched_clone.clone();
                 let permit = sem.clone().acquire_owned().await.unwrap();
+                let user_agent = config.user_agent.clone();
                 tokio::spawn(async move {
-                    worker_loop_single(task, tx_fetched_task).await;
+                    worker_loop_single(task, &user_agent, tx_fetched_task).await;
                     drop(permit); // release semaphore
                 });
             }
