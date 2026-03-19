@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
-use common::DiscoveredLinks;
+use common::types::DiscoveredLinks;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;

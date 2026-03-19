@@ -1,4 +1,5 @@
-use common::FetchTask;
+use common::types::FetchTask;
+use common::url::extract_domain;
 use rusqlite::{Connection, Result, params};
 use std::sync::{Arc, Mutex};
 
@@ -31,7 +32,7 @@ impl FrontierDb {
         for task in tasks {
             tx.execute(
                 "INSERT OR IGNORE INTO urls (url, domain, discovered_at) VALUES (?1, ?2, strftime('%s','now'))",
-                params![&task.url, crate::util::extract_domain(&task.url).unwrap_or_default()],
+                params![&task.url, extract_domain(&task.url).unwrap_or_default()],
             )?;
             let url_id: i64 = tx.query_row(
                 "SELECT id FROM urls WHERE url = ?1",

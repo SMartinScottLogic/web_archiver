@@ -593,8 +593,12 @@ dependencies = [
 name = "common"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
+ "chrono",
  "serde",
  "serde_json",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1611,6 +1615,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hybrid_search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fastembed",
+ "ort",
+ "qdrant-client",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "hyper"
 version = "0.14.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2093,6 +2110,25 @@ name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
+
+[[package]]
+name = "legacy_converter"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "common",
+ "map-macro",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "walkdir",
+]
 
 [[package]]
 name = "libc"

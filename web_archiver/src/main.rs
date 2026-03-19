@@ -9,7 +9,7 @@ mod frontier;
 mod storage;
 mod util;
 
-use common::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
+use common::types::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
 use frontier::db::frontier::FrontierDb;

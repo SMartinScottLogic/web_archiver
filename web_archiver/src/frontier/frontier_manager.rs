@@ -1,7 +1,7 @@
 use crate::config::settings::Host;
 use crate::frontier::db::frontier::FrontierDb;
-use crate::util::canonicalize_url;
-use common::{DiscoveredLinks, FetchTask};
+use common::types::{DiscoveredLinks, FetchTask};
+use common::url::{canonicalize_url, extract_domain, is_http_url};
 use reqwest::Client;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -104,12 +104,12 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            if !crate::util::url::is_http_url(&link) {
+            if !is_http_url(&link) {
                 trace!("Skipping non-http link: {}", link);
                 continue;
             }
             // Only allow links whose domain is in allowed_domains
-            if let Some(domain) = crate::util::extract_domain(&link) {
+            if let Some(domain) = extract_domain(&link) {
                 let matching_domains = self.get_matching_domains(&domain);
                 if matching_domains.is_empty() {
                     trace!("Skipping link outside allowed domains: {}", link);
@@ -210,7 +210,7 @@ impl FrontierManager {
 mod tests {
     use super::*;
     use crate::frontier::db::frontier::FrontierDb;
-    use common::DiscoveredLinks;
+    use common::types::DiscoveredLinks;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
 

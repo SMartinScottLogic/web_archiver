@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
-use common::FetchTask;
+use common::types::FetchTask;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use web_archiver::frontier::db::frontier::FrontierDb;

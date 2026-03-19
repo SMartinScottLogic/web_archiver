@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
 
         let path = entry.path();
         let text = fs::read_to_string(path)?;
-        let content: common::ExtractedPage = match serde_json::from_str(&text) {
+        let content: common::types::ExtractedPage = match serde_json::from_str(&text) {
             Err(e) => {
                 error!(
                     "Failed to convert content of {} into ExtractedPage: {:?}",

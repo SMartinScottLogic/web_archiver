@@ -1,11 +1,8 @@
 use crate::frontier::db::frontier::FrontierDb;
-use crate::util::hash_url;
 use anyhow::Result;
-use chrono::Datelike;
-use common::ExtractedPage;
-use std::fs::{File, create_dir_all};
+use common::types::ExtractedPage;
 use tokio::sync::mpsc::Receiver;
-use tracing::{error, info};
+use tracing::error;
 
 pub async fn storage_loop(mut rx: Receiver<ExtractedPage>, db: FrontierDb) {
     while let Some(page) = rx.recv().await {
@@ -24,29 +21,16 @@ pub async fn storage_loop(mut rx: Receiver<ExtractedPage>, db: FrontierDb) {
 }
 
 fn store_page(page: &ExtractedPage) -> Result<()> {
-    let domain = match crate::util::extract_domain(&page.task.url) {
-        Some(d) => d,
-        None => "unknown".to_string(),
-    };
-
-    // archive/domain/yyyy/mm/hash.json
     let now = chrono::Utc::now();
-    let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
-    create_dir_all(&path)?;
-
-    let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
-    let file = File::create(&filename)?;
-    serde_json::to_writer_pretty(file, &page)?;
-
-    info!("Stored page: {} -> {}", page.task.url, filename);
-
-    Ok(())
+    common::url::store_page(page, now)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{ExtractedPage, FetchTask, PageMetadata};
+    use chrono::Datelike as _;
+    use common::types::{ExtractedPage, FetchTask, PageMetadata};
+    use common::url::{extract_domain, hash_url};
     use std::fs;
 
     #[test]
@@ -72,10 +56,10 @@ mod tests {
         let result = store_page(&page);
         assert!(result.is_ok());
         // Clean up
-        let domain = crate::util::extract_domain(&page.task.url).unwrap();
+        let domain = extract_domain(&page.task.url).unwrap();
         let now = chrono::Utc::now();
         let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
-        let filename = format!("{}/{}.json", path, crate::util::hash_url(&page.task.url));
+        let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
         assert!(fs::metadata(&filename).is_ok());
         let _ = fs::remove_file(&filename);
     }
