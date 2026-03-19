@@ -1,0 +1,21 @@
+[package]
+name = "legacy_converter"
+version = "0.1.1"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"]}
+uuid = { workspace = true }
+walkdir = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+map-macro = { workspace = true }
+rusqlite = { workspace = true }
+
+[dependencies.common]
+path = "../common"

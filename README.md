@@ -172,6 +172,12 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 ```
 
 ---
+## TODO
+- Recrawl logic
+- Retry failures
+- Schema cleanup and consistency checks
+- Reword directory layout - too many in files in {YEAR}/{MONTH} folder [I think this is buried in the rambling planning chat]
+- Understand the ChatGPT download json layout
 
 ## Extending
 - Domain-specific extraction rules

@@ -1,0 +1,17 @@
+[package]
+name = "hybrid_search"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+qdrant-client = {workspace = true }
+fastembed = "5.12.1"
+tokio = { workspace = true }
+anyhow = {workspace = true }
+serde_json = {workspace = true }
+clap = { workspace = true }
+
+[dependencies.ort]
+version = "2.0.0-rc.11"
+default-features = false
+features = ["load-dynamic"]

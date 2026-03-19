@@ -1,6 +1,11 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::{
+    fs::{File, create_dir_all},
+    hash::{DefaultHasher, Hash as _, Hasher as _},
+};
 
+use anyhow::Result;
+use chrono::{DateTime, Datelike as _, Utc};
+use tracing::info;
 use url::{Url, form_urlencoded};
 
 /// Resolve a possibly relative link against a base URL.
@@ -78,14 +83,8 @@ fn is_default_port(scheme: &str, port: u16) -> bool {
     }
 }
 
-/// Extract domain from URL.
-///
-/// Example:
-/// https://news.ycombinator.com/item?id=1
-/// -> news.ycombinator.com
-pub fn extract_domain(input: &str) -> Option<String> {
-    let url = Url::parse(input).ok()?;
-    url.host_str().map(|s| s.to_string())
+pub fn is_http_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
 }
 
 /// Generate a stable hash for a URL.
@@ -96,8 +95,33 @@ pub fn hash_url(url: &str) -> u64 {
     hasher.finish()
 }
 
-pub fn is_http_url(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
+/// Extract domain from URL.
+///
+/// Example:
+/// https://news.ycombinator.com/item?id=1
+/// -> news.ycombinator.com
+pub fn extract_domain(input: &str) -> Option<String> {
+    let url = Url::parse(input).ok()?;
+    url.host_str().map(|s| s.to_string())
+}
+
+pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
+    let domain = match extract_domain(&page.task.url) {
+        Some(d) => d,
+        None => "unknown".to_string(),
+    };
+
+    // archive/domain/yyyy/mm/hash.json
+    let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
+    create_dir_all(&path)?;
+
+    let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
+    let file = File::create(&filename)?;
+    serde_json::to_writer_pretty(file, &page)?;
+
+    info!("Stored page: {} -> {}", page.task.url, filename);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -151,6 +175,20 @@ mod tests {
     }
 
     #[test]
+    fn test_is_http_url() {
+        assert!(is_http_url("http://foo.com"));
+        assert!(is_http_url("https://foo.com"));
+        assert!(!is_http_url("ftp://foo.com"));
+    }
+
+    #[test]
+    fn test_is_default_port() {
+        assert!(is_default_port("http", 80));
+        assert!(is_default_port("https", 443));
+        assert!(!is_default_port("http", 8080));
+    }
+
+    #[test]
     fn test_extract_domain() {
         let url = "https://news.ycombinator.com/item?id=1";
         assert_eq!(
@@ -163,19 +201,5 @@ mod tests {
     fn test_hash_url_stable() {
         let url = "https://foo.com";
         assert_eq!(hash_url(url), hash_url(url));
-    }
-
-    #[test]
-    fn test_is_http_url() {
-        assert!(is_http_url("http://foo.com"));
-        assert!(is_http_url("https://foo.com"));
-        assert!(!is_http_url("ftp://foo.com"));
-    }
-
-    #[test]
-    fn test_is_default_port() {
-        assert!(is_default_port("http", 80));
-        assert!(is_default_port("https", 443));
-        assert!(!is_default_port("http", 8080));
     }
 }
