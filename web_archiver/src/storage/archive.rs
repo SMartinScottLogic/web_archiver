@@ -58,8 +58,21 @@ mod tests {
         // Clean up
         let domain = extract_domain(&page.task.url).unwrap();
         let now = chrono::Utc::now();
-        let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
-        let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
+        let hash = hash_url(&page.task.url);
+        let path = format!(
+            "archive/{}/{}/{}",
+            domain,
+            "test",
+            &format!("{:016x}", hash)[..2]
+        );
+        let filename = format!(
+            "{}/{:016x}_{:04}-{:02}.json",
+            path,
+            hash,
+            now.year(),
+            now.month()
+        );
+        println!("Expected filename: {}", filename);
         assert!(fs::metadata(&filename).is_ok());
         let _ = fs::remove_file(&filename);
     }

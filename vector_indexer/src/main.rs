@@ -16,6 +16,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 const CHUNK_SIZE: usize = 500;
+const OVERLAP: usize = 96;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
     // ---------------------------
     let client = Qdrant::from_url("http://localhost:6334").build()?;
 
-    let collection = "documents";
+    let collection = "literotica";
     if !client.collection_exists(collection).await? {
         client
             .create_collection(
@@ -97,22 +98,37 @@ async fn main() -> Result<()> {
                 warn!("Processing {}: Empty content", path.display());
                 continue;
             }
+            Some(r) if r.len() < 5_000 => {
+                warn!(
+                    "Processing {}: Too little content {} < 5,000",
+                    path.display(),
+                    r.len()
+                );
+                continue;
+            }
             Some(r) => {
                 info!("Processing {}", path.display());
                 r
             }
         };
 
-        let chunks = chunk_text(&markdown, CHUNK_SIZE);
+        //let chunks = chunk_text(&markdown, CHUNK_SIZE);
 
-        let embeddings = embedder.embed(chunks.clone(), None)?;
+        let chunks = chunk_markdown(&markdown, CHUNK_SIZE, OVERLAP);
+
+        let text_chunks = chunks
+            .iter()
+            .map(|chunk| chunk.text.to_owned())
+            .collect::<Vec<_>>();
+
+        let embeddings = embedder.embed(text_chunks, None)?;
 
         let mut points = Vec::new();
 
         for (chunk_id, (chunk, embedding)) in chunks.into_iter().zip(embeddings).enumerate() {
-            info!(chunk_id, path = ?path, "upsert");
+            info!(chunk_id, path = ?path, total_len = markdown.len(), "upsert");
             let payload = hash_map!(
-                "text".to_string() => json!(chunk),
+                "text".to_string() => json!(chunk.text),
                 "chunk_id".to_string() => json!(chunk_id),
                 "source".to_string() => json!(path.display().to_string())
             );
@@ -135,24 +151,114 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn chunk_text(text: &str, chunk_size: usize) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
+// fn chunk_text(text: &str, chunk_size: usize) -> Vec<String> {
+//     let words: Vec<&str> = text.split_whitespace().collect();
+
+//     let mut chunks = Vec::new();
+//     let mut current = Vec::new();
+
+//     for word in words {
+//         current.push(word);
+
+//         if current.len() >= chunk_size {
+//             chunks.push(current.join(" "));
+//             current.clear();
+//         }
+//     }
+
+//     if !current.is_empty() {
+//         chunks.push(current.join(" "));
+//     }
+
+//     chunks
+// }
+
+// ---------------------------
+// Markdown-aware chunking
+// ---------------------------
+
+struct Chunk {
+    text: String,
+}
+
+fn chunk_markdown(text: &str, chunk_size: usize, overlap: usize) -> Vec<Chunk> {
+    let blocks = split_markdown_blocks(text);
 
     let mut chunks = Vec::new();
     let mut current = Vec::new();
+    let mut current_tokens = 0;
 
-    for word in words {
-        current.push(word);
+    for block in blocks {
+        let tokens = estimate_tokens(&block);
 
-        if current.len() >= chunk_size {
-            chunks.push(current.join(" "));
-            current.clear();
+        // If adding this block exceeds chunk size → flush
+        if current_tokens + tokens > chunk_size && !current.is_empty() {
+            let chunk_text = current.join("\n\n");
+
+            chunks.push(Chunk {
+                text: chunk_text.clone(),
+            });
+
+            // Handle overlap
+            let overlap_text = take_overlap(&chunk_text, overlap);
+            current = vec![overlap_text];
+            current_tokens = estimate_tokens(&current[0]);
         }
+
+        current.push(block);
+        current_tokens += tokens;
     }
 
+    // अंतिम chunk
     if !current.is_empty() {
-        chunks.push(current.join(" "));
+        chunks.push(Chunk {
+            text: current.join("\n\n"),
+        });
     }
 
     chunks
+}
+
+fn split_markdown_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current = Vec::new();
+
+    for line in text.lines() {
+        // New section on headings
+        if line.starts_with('#') && !current.is_empty() {
+            blocks.push(current.join("\n"));
+            current.clear();
+        }
+
+        // Paragraph break
+        if line.trim().is_empty() && !current.is_empty() {
+            blocks.push(current.join("\n"));
+            current.clear();
+            continue;
+        }
+
+        current.push(line.to_string());
+    }
+
+    if !current.is_empty() {
+        blocks.push(current.join("\n"));
+    }
+
+    blocks
+}
+
+fn estimate_tokens(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+fn take_overlap(text: &str, overlap_tokens: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+
+    let start = if words.len() > overlap_tokens {
+        words.len() - overlap_tokens
+    } else {
+        0
+    };
+
+    words[start..].join(" ")
 }

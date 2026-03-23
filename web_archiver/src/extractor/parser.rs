@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::util::html_to_markdown;
+use crate::markdown::html_to_markdown;
 use anyhow::Result;
 use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
 use common::url::{canonicalize_url, resolve_relative_link};

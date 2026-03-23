@@ -6,8 +6,8 @@ mod config;
 mod extractor;
 mod fetcher;
 mod frontier;
+mod markdown;
 mod storage;
-mod util;
 
 use common::types::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 use extractor::parser::extractor_loop;
