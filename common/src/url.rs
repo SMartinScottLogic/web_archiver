@@ -1,12 +1,3 @@
-use std::{
-    fs::{File, create_dir_all},
-    hash::{DefaultHasher, Hash as _, Hasher as _},
-    path::{Path, PathBuf},
-};
-
-use anyhow::Result;
-use chrono::{DateTime, Datelike as _, Utc};
-use tracing::info;
 use url::{Url, form_urlencoded};
 
 /// Resolve a possibly relative link against a base URL.
@@ -90,10 +81,8 @@ pub fn is_http_url(url: &str) -> bool {
 
 /// Generate a stable hash for a URL.
 /// Used for fast deduplication and filenames.
-pub fn hash_url(url: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
-    hasher.finish()
+pub fn hash_url(url: &str) -> String {
+    blake3::hash(url.as_bytes()).to_hex().to_string()
 }
 
 /// Extract domain from URL.
@@ -106,112 +95,44 @@ pub fn extract_domain(input: &str) -> Option<String> {
     url.host_str().map(|s| s.to_string())
 }
 
-pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
-    let url = Url::parse(&page.task.url).ok();
+pub fn sanitize(input: &str) -> String {
+    let mut out = String::with_capacity(50);
 
-    let domain = url.as_ref().and_then(|u| u.domain()).unwrap_or("unknown");
+    let mut last_was_underscore = false;
 
-    let mut path = PathBuf::from("archive");
-    path.push(domain);
+    for c in input.chars() {
+        if out.len() == 50 {
+            break;
+        }
 
-    // Add URL path segments (limited depth!)
-    if let Some(segments) = url
-        .as_ref()
-        .and_then(|u| u.path_segments().map(|s| s.collect::<Vec<_>>()))
-    {
-        for seg in segments.into_iter().take(5) {
-            // 👈 limit depth
-            let clean = sanitize(seg);
-            if !clean.is_empty() {
-                path.push(clean);
+        let c = if c == ' ' || c == '.' { '_' } else { c };
+
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            if c == '_' {
+                // Skip leading underscore or repeated ones
+                if out.is_empty() || last_was_underscore {
+                    continue;
+                }
+
+                // Only push if there's room AND it's not going to be trailing
+                if out.len() < 50 {
+                    out.push('_');
+                    last_was_underscore = true;
+                }
+            } else {
+                out.push(c);
+                last_was_underscore = false;
             }
         }
     }
 
-    let hash = format!("{:016x}", hash_url(&page.task.url));
-    // Hash sharding
-    path.push(&hash[0..2]);
-
-    create_dir_all(&path)?;
-
-    let file_path = find_available_path(&path, &hash, &page.task.url, now.year(), now.month())?;
-
-    let file = File::create(&file_path)?;
-    serde_json::to_writer_pretty(file, &page)?;
-
-    info!("Stored page: {} -> {:?}", page.task.url, file_path);
-    println!("Stored page: {} -> {:?}", page.task.url, file_path);
-
-    Ok(())
-}
-
-fn find_available_path(
-    base: &Path,
-    hash: &str,
-    url: &str,
-    year: i32,
-    month: u32,
-) -> Result<PathBuf> {
-    let mut attempt = 0;
-
-    loop {
-        let filename = if attempt == 0 {
-            format!("{}_{:04}-{:02}.json", hash, year, month)
-        } else {
-            format!("{}_{:04}-{:02}_{}.json", hash, year, month, attempt)
-        };
-
-        let path = base.join(filename);
-
-        if !path.exists() {
-            return Ok(path);
-        }
-
-        // Check for same URL
-        if let Some(existing) = std::fs::File::open(&path)
-            .ok()
-            .and_then(|f| serde_json::from_reader::<_, crate::types::ExtractedPage>(f).ok())
-            && existing.task.url == url
-        {
-            return Ok(path); // overwrite
-        }
-
-        attempt += 1;
+    // Remove trailing underscore if present
+    if out.ends_with('_') {
+        out.pop();
     }
+
+    if out.is_empty() { "_".to_string() } else { out }
 }
-
-fn sanitize(input: &str) -> String {
-    let cleaned: String = input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
-
-    if cleaned.is_empty() {
-        "_".to_string()
-    } else {
-        cleaned.chars().take(50).collect()
-    }
-}
-
-// Old version - retain as versioned structs?
-// pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
-//     let domain = match extract_domain(&page.task.url) {
-//         Some(d) => d,
-//         None => "unknown".to_string(),
-//     };
-
-//     // archive/domain/yyyy/mm/hash.json
-//     let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
-//     create_dir_all(&path)?;
-
-//     let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
-//     let file = File::create(&filename)?;
-//     serde_json::to_writer_pretty(file, &page)?;
-
-//     info!("Stored page: {} -> {}", page.task.url, filename);
-
-//     Ok(())
-// }
 
 #[cfg(test)]
 mod tests {

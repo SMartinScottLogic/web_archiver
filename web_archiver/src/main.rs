@@ -1,3 +1,4 @@
+use common::DefaultArchiver;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -101,9 +102,10 @@ async fn main() {
     });
 
     // --- 7. Spawn Storage Task ---
+    let archiver = DefaultArchiver::new();
     let storage_db = FrontierDb::new(db_arc.clone());
     tokio::spawn(async move {
-        storage_loop(rx_extracted, storage_db).await;
+        storage_loop(archiver, rx_extracted, storage_db).await;
     });
 
     // --- 8. Wait forever ---

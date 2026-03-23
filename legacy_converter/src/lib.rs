@@ -1,14 +1,17 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
 use map_macro::hash_map;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use tracing::debug;
 
-use common::types::{ExtractedPage, FetchTask, PageMetadata};
+use common::{
+    Archiver,
+    types::{ExtractedPage, FetchTask, PageMetadata},
+};
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct LegacyStory {
@@ -90,11 +93,15 @@ fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error>
     Ok(page)
 }
 
-pub fn store_file(path: &Path, fetch_time: u64, delete_source: bool) -> Result<()> {
+pub fn store_file(
+    archiver: &impl Archiver,
+    path: &Path,
+    fetch_time: u64,
+    delete_source: bool,
+) -> Result<()> {
     let converted = convert(path, fetch_time)?;
     // Save new file
-    let fetch_time = DateTime::<Utc>::from_timestamp(fetch_time.try_into().unwrap(), 0).unwrap();
-    common::url::store_page(&converted, fetch_time)?;
+    archiver.store_page(&converted)?;
     // TODO Add to DB?
     if delete_source {
         fs::remove_file(path)?;
