@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
-use common::DiscoveredLinks;
+use common::types::DiscoveredLinks;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -33,6 +33,7 @@ fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
     let (tx_fetch, _rx_fetch) = mpsc::channel(10);
     let (_tx_links, rx_links) = mpsc::channel(10);
     FrontierManager::new(
+        "user_agent".to_string(),
         seed_urls,
         tx_fetch,
         rx_links,

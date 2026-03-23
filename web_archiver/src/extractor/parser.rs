@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use crate::util::html_to_markdown;
-use crate::util::{canonicalize_url, resolve_relative_link};
+use crate::markdown::html_to_markdown;
 use anyhow::Result;
-use common::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
+use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
+use common::url::{canonicalize_url, resolve_relative_link};
 use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};
@@ -91,7 +91,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
         task: fetched.task.clone(),
         content_markdown: Some(markdown),
         links: links.clone(),
-        metadata: PageMetadata {
+        metadata: Some(PageMetadata {
             status_code: 200,
             content_type: None,
             fetch_time: chrono::Utc::now().timestamp() as u64,
@@ -99,8 +99,8 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
                 .select(&Selector::parse("title").unwrap())
                 .next()
                 .map(|e| e.text().collect::<String>()),
-            document_metadata: meta,
-        },
+            document_metadata: Some(meta),
+        }),
     };
 
     let discovered_links = DiscoveredLinks {
@@ -117,7 +117,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::FetchTask;
+    use common::types::FetchTask;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -162,20 +162,21 @@ mod tests {
         assert!(extracted.content_markdown.is_some());
         assert_eq!(discovered.links.len(), 1);
         assert!(discovered.links[0].contains("foo.com/bar"));
-        assert_eq!(extracted.metadata.document_metadata.len(), 1);
+        let document_metadata = extracted.metadata.unwrap().document_metadata.unwrap();
+        assert_eq!(document_metadata.len(), 1);
         assert_eq!(
-            extracted.metadata.document_metadata[0].get("name"),
+            document_metadata[0].get("name"),
             Some("test".to_string()).as_ref()
         );
         assert_eq!(
-            extracted.metadata.document_metadata[0].get("content"),
+            document_metadata[0].get("content"),
             Some("test content".to_string()).as_ref()
         );
     }
 
     #[tokio::test]
     async fn test_extractor_loop_sends_outputs() {
-        use common::{DiscoveredLinks, ExtractedPage, FetchedPage};
+        use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage};
         use std::sync::Arc;
         use tokio::sync::mpsc;
 

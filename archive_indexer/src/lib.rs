@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::ExtractedPage;
+use common::types::ExtractedPage;
 use csv::{Writer, WriterBuilder};
 use std::fs::{File, read_dir};
 use std::path::Path;
@@ -26,6 +26,7 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>) -> Result<()> {
     for entry in read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
+        // TODO Add progress display
         if path.is_dir() {
             scan_dir(&path, wtr)?;
         } else if path.extension().map(|ext| ext == "json").unwrap_or(false) {
@@ -41,7 +42,7 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{ExtractedPage, FetchTask, PageMetadata};
+    use common::types::{ExtractedPage, FetchTask, PageMetadata};
     use std::fs::{self, File};
     use std::io::Read;
     use tempfile::tempdir;
@@ -62,13 +63,13 @@ mod tests {
             },
             content_markdown: Some("content".to_string()),
             links: vec![],
-            metadata: PageMetadata {
+            metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
                 fetch_time: 0,
                 title: Some("Test".to_string()),
-                document_metadata: vec![],
-            },
+                document_metadata: Some(vec![]),
+            }),
         };
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();

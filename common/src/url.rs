@@ -1,6 +1,12 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::{
+    fs::{File, create_dir_all},
+    hash::{DefaultHasher, Hash as _, Hasher as _},
+    path::{Path, PathBuf},
+};
 
+use anyhow::Result;
+use chrono::{DateTime, Datelike as _, Utc};
+use tracing::info;
 use url::{Url, form_urlencoded};
 
 /// Resolve a possibly relative link against a base URL.
@@ -78,14 +84,8 @@ fn is_default_port(scheme: &str, port: u16) -> bool {
     }
 }
 
-/// Extract domain from URL.
-///
-/// Example:
-/// https://news.ycombinator.com/item?id=1
-/// -> news.ycombinator.com
-pub fn extract_domain(input: &str) -> Option<String> {
-    let url = Url::parse(input).ok()?;
-    url.host_str().map(|s| s.to_string())
+pub fn is_http_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
 }
 
 /// Generate a stable hash for a URL.
@@ -96,9 +96,122 @@ pub fn hash_url(url: &str) -> u64 {
     hasher.finish()
 }
 
-pub fn is_http_url(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
+/// Extract domain from URL.
+///
+/// Example:
+/// https://news.ycombinator.com/item?id=1
+/// -> news.ycombinator.com
+pub fn extract_domain(input: &str) -> Option<String> {
+    let url = Url::parse(input).ok()?;
+    url.host_str().map(|s| s.to_string())
 }
+
+pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
+    let url = Url::parse(&page.task.url).ok();
+
+    let domain = url.as_ref().and_then(|u| u.domain()).unwrap_or("unknown");
+
+    let mut path = PathBuf::from("archive");
+    path.push(domain);
+
+    // Add URL path segments (limited depth!)
+    if let Some(segments) = url
+        .as_ref()
+        .and_then(|u| u.path_segments().map(|s| s.collect::<Vec<_>>()))
+    {
+        for seg in segments.into_iter().take(5) {
+            // 👈 limit depth
+            let clean = sanitize(seg);
+            if !clean.is_empty() {
+                path.push(clean);
+            }
+        }
+    }
+
+    let hash = format!("{:016x}", hash_url(&page.task.url));
+    // Hash sharding
+    path.push(&hash[0..2]);
+
+    create_dir_all(&path)?;
+
+    let file_path = find_available_path(&path, &hash, &page.task.url, now.year(), now.month())?;
+
+    let file = File::create(&file_path)?;
+    serde_json::to_writer_pretty(file, &page)?;
+
+    info!("Stored page: {} -> {:?}", page.task.url, file_path);
+    println!("Stored page: {} -> {:?}", page.task.url, file_path);
+
+    Ok(())
+}
+
+fn find_available_path(
+    base: &Path,
+    hash: &str,
+    url: &str,
+    year: i32,
+    month: u32,
+) -> Result<PathBuf> {
+    let mut attempt = 0;
+
+    loop {
+        let filename = if attempt == 0 {
+            format!("{}_{:04}-{:02}.json", hash, year, month)
+        } else {
+            format!("{}_{:04}-{:02}_{}.json", hash, year, month, attempt)
+        };
+
+        let path = base.join(filename);
+
+        if !path.exists() {
+            return Ok(path);
+        }
+
+        // Check for same URL
+        if let Some(existing) = std::fs::File::open(&path)
+            .ok()
+            .and_then(|f| serde_json::from_reader::<_, crate::types::ExtractedPage>(f).ok())
+            && existing.task.url == url
+        {
+            return Ok(path); // overwrite
+        }
+
+        attempt += 1;
+    }
+}
+
+fn sanitize(input: &str) -> String {
+    let cleaned: String = input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+
+    if cleaned.is_empty() {
+        "_".to_string()
+    } else {
+        cleaned.chars().take(50).collect()
+    }
+}
+
+// Old version - retain as versioned structs?
+// pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
+//     let domain = match extract_domain(&page.task.url) {
+//         Some(d) => d,
+//         None => "unknown".to_string(),
+//     };
+
+//     // archive/domain/yyyy/mm/hash.json
+//     let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
+//     create_dir_all(&path)?;
+
+//     let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
+//     let file = File::create(&filename)?;
+//     serde_json::to_writer_pretty(file, &page)?;
+
+//     info!("Stored page: {} -> {}", page.task.url, filename);
+
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
@@ -151,6 +264,20 @@ mod tests {
     }
 
     #[test]
+    fn test_is_http_url() {
+        assert!(is_http_url("http://foo.com"));
+        assert!(is_http_url("https://foo.com"));
+        assert!(!is_http_url("ftp://foo.com"));
+    }
+
+    #[test]
+    fn test_is_default_port() {
+        assert!(is_default_port("http", 80));
+        assert!(is_default_port("https", 443));
+        assert!(!is_default_port("http", 8080));
+    }
+
+    #[test]
     fn test_extract_domain() {
         let url = "https://news.ycombinator.com/item?id=1";
         assert_eq!(
@@ -163,19 +290,5 @@ mod tests {
     fn test_hash_url_stable() {
         let url = "https://foo.com";
         assert_eq!(hash_url(url), hash_url(url));
-    }
-
-    #[test]
-    fn test_is_http_url() {
-        assert!(is_http_url("http://foo.com"));
-        assert!(is_http_url("https://foo.com"));
-        assert!(!is_http_url("ftp://foo.com"));
-    }
-
-    #[test]
-    fn test_is_default_port() {
-        assert!(is_default_port("http", 80));
-        assert!(is_default_port("https", 443));
-        assert!(!is_default_port("http", 8080));
     }
 }

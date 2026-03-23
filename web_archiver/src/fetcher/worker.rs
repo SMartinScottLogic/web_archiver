@@ -1,11 +1,11 @@
 use anyhow::Result;
-use common::{FetchTask, FetchedPage};
+use common::types::{FetchTask, FetchedPage};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
 
-pub async fn worker_loop_single(task: FetchTask, tx: Sender<FetchedPage>) {
+pub async fn worker_loop_single(task: FetchTask, user_agent: &str, tx: Sender<FetchedPage>) {
     let client = reqwest::Client::builder()
-        .user_agent("Week1Crawler/0.1")
+        .user_agent(user_agent)
         .build()
         .unwrap();
 
@@ -57,7 +57,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_loop_single_sends_fetched() {
-        use common::FetchTask;
+        use common::types::FetchTask;
         use tokio::sync::mpsc;
 
         // Use a known good URL for testing (httpbin.org is reliable for tests)
@@ -69,7 +69,7 @@ mod tests {
             discovered_from: None,
         };
         let (tx, mut rx) = mpsc::channel(1);
-        worker_loop_single(task, tx).await;
+        worker_loop_single(task, "test", tx).await;
         // Should receive a FetchedPage
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);

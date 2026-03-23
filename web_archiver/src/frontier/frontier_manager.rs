@@ -1,7 +1,7 @@
 use crate::config::settings::Host;
 use crate::frontier::db::frontier::FrontierDb;
-use crate::util::canonicalize_url;
-use common::{DiscoveredLinks, FetchTask};
+use common::types::{DiscoveredLinks, FetchTask};
+use common::url::{canonicalize_url, extract_domain, is_http_url};
 use reqwest::Client;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -17,12 +17,14 @@ pub struct FrontierManager {
     rx_links: Receiver<DiscoveredLinks>,
     noop_delay_millis: u64,
     hosts: Vec<Host>,
+    user_agent: String,
     robots_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
     http_client: Client,
 }
 
 impl FrontierManager {
     pub fn new(
+        user_agent: String,
         seed_urls: Vec<String>,
         tx_fetch: Sender<FetchTask>,
         rx_links: Receiver<DiscoveredLinks>,
@@ -58,6 +60,7 @@ impl FrontierManager {
             rx_links,
             noop_delay_millis,
             hosts,
+            user_agent,
             robots_cache: Arc::new(Mutex::new(HashMap::new())),
             http_client: Client::new(),
         }
@@ -101,12 +104,12 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            if !crate::util::url::is_http_url(&link) {
+            if !is_http_url(&link) {
                 trace!("Skipping non-http link: {}", link);
                 continue;
             }
             // Only allow links whose domain is in allowed_domains
-            if let Some(domain) = crate::util::extract_domain(&link) {
+            if let Some(domain) = extract_domain(&link) {
                 let matching_domains = self.get_matching_domains(&domain);
                 if matching_domains.is_empty() {
                     trace!("Skipping link outside allowed domains: {}", link);
@@ -167,7 +170,7 @@ impl FrontierManager {
             },
         };
         // Check if URL is allowed by robots.txt rules
-        matcher.one_agent_allowed_by_robots(&r, "Week1Crawler", url)
+        matcher.one_agent_allowed_by_robots(&r, &self.user_agent, url)
         //robots_txt.is_allowed(url, "*")
     }
 
@@ -207,7 +210,7 @@ impl FrontierManager {
 mod tests {
     use super::*;
     use crate::frontier::db::frontier::FrontierDb;
-    use common::DiscoveredLinks;
+    use common::types::DiscoveredLinks;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
 
@@ -227,6 +230,7 @@ mod tests {
             rx_links: tokio::sync::mpsc::channel(1).1,
             noop_delay_millis: 1,
             hosts,
+            user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
         }
@@ -339,6 +343,7 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(HashMap::new())),
             http_client: Client::new(),
         };
@@ -383,6 +388,7 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
         };
@@ -438,6 +444,7 @@ mod tests {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
             }],
+            user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(HashMap::new())),
             http_client: Client::new(),
         };

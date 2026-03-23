@@ -1,40 +1,64 @@
 # Rust Web Archiver / Crawler
 
-A high-performance, resumable web archiver and crawler written in Rust. Designed for large-scale, rules-driven web archiving with clean Markdown extraction and robust state persistence.
+![Rust](https://img.shields.io/badge/Rust-1.70+-orange)
+![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+A high-performance, resumable web archiver and crawler written in Rust. Designed for large-scale, rules-driven web archiving with clean Markdown extraction, robust state persistence, and downstream indexing pipelines.
+
+---
+
+## Table of Contents
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration-configyaml)
+- [Architecture](#architecture)
+- [Indexing Pipelines](#indexing-pipelines)
+- [Vector Indexing Setup](#vector-indexing-setup)
+- [Extending](#extending)
+
+---
 
 ## Features
-- **Async pipeline** using Tokio for high concurrency
-- **Per-domain crawl limits** and rules
-- **Seed URLs and allowed domains** configurable via YAML
-- **Crawl state persisted in SQLite** (frontier, URLs, history, etc.)
-- **One JSON file per archived page** (clean Markdown, metadata)
-- **Resumable**: crash-safe, can restart from last state
-- **Batch link ingestion** and deduplication
-- **Configurable number of fetch workers** (CLI or config)
-- **Structured logging** with `tracing`
+- Async pipeline using Tokio for high concurrency
+- Per-domain crawl limits and rules
+- YAML-configured hosts and seed URLs
+- SQLite-backed crawl state (frontier, history, deduplication)
+- One JSON file per archived page (Markdown + metadata)
+- Fully resumable (crash-safe)
+- Structured logging with `tracing`
+
+### Post-processing
+- `archive_indexer`: CSV mapping of URL → archive file
+- `vector_indexer`: Embedding pipeline → Qdrant
+
+---
 
 ## Quick Start
 
-1. **Install Rust** (if not already):
-   https://rustup.rs/
+### 1. Install Rust
+https://rustup.rs/
 
-2. **Clone the repo:**
-   ```sh
-   git clone https://github.com/SMartinScottLogic/web_archiver.git
-   cd web_archiver
-   ```
+### 2. Clone repo
+```sh
+git clone https://github.com/SMartinScottLogic/web_archiver.git
+cd web_archiver
+```
 
-3. **Edit `config.yaml`:**
-   - Set `allowed_domains`, `seed_urls`, and `workers` as needed.
+### 3. Configure
+Edit `config.yaml`
 
-4. **Run the crawler:**
-   ```sh
-   cargo run --bin web_archiver --release
-   # or override workers:
-   cargo run --bin web_archiver --release -- --workers 8
-   ```
+### 4. Run crawler
+```sh
+cargo run --bin web_archiver --release
+```
 
-5. **Archives** are written to `archive/<domain>/<year>/<month>/<hash>.json`
+### 5. Output
+```
+archive/<domain>/<year>/<month>/<hash>.json
+```
+
+---
 
 ## Configuration (`config.yaml`)
 
@@ -42,16 +66,16 @@ A high-performance, resumable web archiver and crawler written in Rust. Designed
 hosts:
   - name: Example
     domains:
-    - www.example.com
-    - blog.example.com
+      - www.example.com
+      - blog.example.com
+
 workers: 4
+
 seed_urls:
   - "https://www.example.com/start"
 ```
 
-- `allowed_domains`: Only these domains will be crawled.
-- `workers`: Default number of concurrent fetch workers (can be overridden by CLI `--workers`).
-- `seed_urls`: Initial URLs to start crawling from.
+---
 
 ## Architecture
 
@@ -75,16 +99,97 @@ Extractor / Parser
                SQLite Frontier
 ```
 
-- **Frontier**: SQLite-backed queue, atomic claim for fetchers
-- **Workers**: Fetch pages concurrently
-- **Extractor**: Parses HTML, extracts clean Markdown, finds links
-- **Storage**: Writes JSON archive files
+## Flow
 
-## Indexing
+```
+SQLite Frontier → Frontier Manager → Workers → Extractor
+     ↑                                               ↓
+     └──────────── Link ingestion / deduplication ───┘
+```
 
-A separate binary (`archive_indexer`) can index the archive and produce a CSV mapping URLs to JSON files.
+- Frontier: SQLite-backed queue with atomic claims
+- Workers: Concurrent fetchers
+- Extractor: HTML → Markdown + links
+- Storage: JSON archive files
+
+---
+
+## Indexing Pipelines
+
+### Archive Indexer
+```sh
+cargo run --bin archive_indexer --release
+```
+
+### Vector Indexer
+```sh
+cargo run --bin vector_indexer --release
+```
+
+### Vector Pipeline Architecture
+
+```
+JSON Archive
+     │
+     ▼
+Chunker (Markdown → segments)
+     │
+     ▼
+Embedding Model (ONNX Runtime)
+     │
+     ▼
+Vector Store (Qdrant)
+```
+
+Pipeline steps:
+1. Read JSON archive
+2. Chunk Markdown
+3. Generate embeddings
+4. Store vectors
+
+---
+
+## Vector Indexing Setup
+
+### Install ONNX Runtime
+```bash
+VERSION=1.24.3 \
+wget https://github.com/microsoft/onnxruntime/releases/download/v$VERSION/onnxruntime-linux-x64-$VERSION.tgz \
+tar xf onnxruntime-linux-x64-$VERSION.tgz \
+sudo cp onnxruntime-linux-x64-$VERSION/lib/libonnxruntime.so /usr/local/lib/ \
+sudo ldconfig
+```
+
+If needed:
+```bash
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+sudo ldconfig
+```
+
+### Run Qdrant
+```bash
+docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+```
+
+---
+## TODO
+- Recrawl logic
+- Retry failures
+- Schema cleanup and consistency checks
+- Reword directory layout - too many in files in {YEAR}/{MONTH} folder [I think this is buried in the rambling planning chat]
+- Understand the ChatGPT download json layout
 
 ## Extending
-- Add per-domain rules (XPath, robots.txt, etc.)
-- Implement crawl trap protection
-- Add more sophisticated politeness/concurrency controls
+- Domain-specific extraction rules
+- Crawl trap detection
+- Advanced politeness strategies
+- Hybrid search (keyword + vector)
+
+---
+
+## License
+MIT (add LICENSE file)
+
+---
+
+_Last updated: 2026-03-17_

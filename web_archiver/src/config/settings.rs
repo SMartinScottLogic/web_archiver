@@ -1,23 +1,71 @@
-use serde::Deserialize;
-use std::fs;
+use clap::Parser;
+use figment::{
+    Figment,
+    providers::{Format as _, Serialized, Yaml},
+};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
-pub struct DomainConfig {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Config {
     pub hosts: Vec<Host>,
-    pub workers: Option<usize>,
-    pub seed_urls: Option<Vec<String>>,
+    pub workers: usize,
+    pub seed_urls: Vec<String>,
+    pub noop_delay_millis: u64,
+    pub user_agent: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Host {
     pub name: String,
     pub domains: Vec<String>,
 }
 
-impl DomainConfig {
-    pub fn load_from_file(path: &str) -> anyhow::Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let config: DomainConfig = serde_yaml::from_str(&content)?;
+/// Command line arguments
+#[derive(Parser, Debug, Serialize)]
+#[command(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Delay in ms for frontier manager idle loop
+    #[arg(short, long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    noop_delay_millis: Option<u64>,
+
+    /// Number of concurrent fetch workers
+    #[arg(short, long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workers: Option<usize>,
+
+    /// User Agent to supply for fetches
+    #[arg(short, long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_agent: Option<String>,
+
+    /// Crawl seeds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed_urls: Option<Vec<String>>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            hosts: Default::default(),
+            workers: 1,
+            seed_urls: Default::default(),
+            noop_delay_millis: 500,
+            user_agent: "Week1Crawler/0.1".to_string(),
+        }
+    }
+}
+impl Config {
+    pub fn file(path: &str) -> anyhow::Result<Self> {
+        let cli = Args::parse();
+        let config: Self = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Yaml::file(path))
+            .merge(Serialized::from(cli, "default"))
+            .extract()?;
         Ok(config)
     }
 }
@@ -34,12 +82,12 @@ mod tests {
         let path = "test_config.yaml";
         let mut file = File::create(path).unwrap();
         file.write_all(yaml.as_bytes()).unwrap();
-        let config = DomainConfig::load_from_file(path).unwrap();
+        let config = Config::file(path).unwrap();
         assert_eq!(config.hosts.len(), 1);
         assert_eq!(config.hosts[0].name, "Foo");
         assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
-        assert_eq!(config.workers, Some(2));
-        assert_eq!(config.seed_urls, Some(vec!["http://foo.com".to_string()]));
+        assert_eq!(config.workers, 2);
+        assert_eq!(config.seed_urls, vec!["http://foo.com".to_string()]);
         std::fs::remove_file(path).unwrap();
     }
 }
