@@ -1,6 +1,12 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fs::{File, create_dir_all},
+    path::PathBuf,
+};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+use anyhow::Context as _;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
     pub url_id: i64,
     pub url: String,
@@ -11,7 +17,7 @@ pub struct FetchTask {
     pub discovered_from: Option<i64>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FetchedPage {
     pub task: FetchTask,
     pub status_code: u16,
@@ -20,7 +26,7 @@ pub struct FetchedPage {
     pub body: std::sync::Arc<Vec<u8>>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ExtractedPage {
     pub task: FetchTask,
     pub content_markdown: Option<String>,
@@ -35,13 +41,31 @@ pub struct DiscoveredLinks {
     pub depth: u32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PageMetadata {
     pub status_code: u16,
     pub content_type: Option<String>,
     pub fetch_time: u64,
     pub title: Option<String>,
     pub document_metadata: Option<Vec<HashMap<String, String>>>,
+}
+
+impl ExtractedPage {
+    pub fn write_page(&self, path: &PathBuf) -> anyhow::Result<()> {
+        let parent = path
+            .parent()
+            .with_context(|| format!("Failed to get parent of {:?}", path))?;
+        create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {:?}", parent))?;
+
+        let file =
+            File::create(path).with_context(|| format!("Failed to create file {:?}", path))?;
+
+        serde_json::to_writer_pretty(file, self)
+            .with_context(|| format!("Failed to write JSON to {:?}", path))?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

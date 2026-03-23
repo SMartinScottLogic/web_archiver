@@ -26,3 +26,6 @@ figment = {version = "0.10.19", features = ["yaml"]}
 
 [dependencies.common]
 path = "../common"
+
+[dev-dependencies]
+mockall = "0.14.0"            # A powerful mock object library for Rust. 

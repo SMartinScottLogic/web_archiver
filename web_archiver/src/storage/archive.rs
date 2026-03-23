@@ -1,12 +1,16 @@
 use crate::frontier::db::frontier::FrontierDb;
 use anyhow::Result;
-use common::types::ExtractedPage;
+use common::{Archiver, types::ExtractedPage};
 use tokio::sync::mpsc::Receiver;
 use tracing::error;
 
-pub async fn storage_loop(mut rx: Receiver<ExtractedPage>, db: FrontierDb) {
+pub async fn storage_loop(
+    archiver: impl Archiver,
+    mut rx: Receiver<ExtractedPage>,
+    db: FrontierDb,
+) {
     while let Some(page) = rx.recv().await {
-        match store_page(&page) {
+        match store_page(&archiver, &page) {
             Ok(_) => {
                 // Mark as complete in the DB
                 if let Err(e) = db.mark_complete(page.task.url_id) {
@@ -20,18 +24,18 @@ pub async fn storage_loop(mut rx: Receiver<ExtractedPage>, db: FrontierDb) {
     }
 }
 
-fn store_page(page: &ExtractedPage) -> Result<()> {
-    let now = chrono::Utc::now();
-    common::url::store_page(page, now)
+fn store_page(archiver: &impl Archiver, page: &ExtractedPage) -> Result<()> {
+    archiver.store_page(page)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Datelike as _;
+    use common::MockArchiver;
     use common::types::{ExtractedPage, FetchTask, PageMetadata};
-    use common::url::{extract_domain, hash_url};
-    use std::fs;
+    use mockall::predicate;
+    use std::path::PathBuf;
 
     #[test]
     fn test_store_page_creates_file() {
@@ -53,28 +57,13 @@ mod tests {
                 document_metadata: Some(vec![]),
             }),
         };
-        let result = store_page(&page);
+        let mut archiver = MockArchiver::new();
+        archiver
+            .expect_store_page()
+            .with(predicate::eq(page.clone()))
+            .return_once(|_| Ok(PathBuf::from("fake/page/location/file.json")));
+        let result = store_page(&archiver, &page);
         assert!(result.is_ok());
-        // Clean up
-        let domain = extract_domain(&page.task.url).unwrap();
-        let now = chrono::Utc::now();
-        let hash = hash_url(&page.task.url);
-        let path = format!(
-            "archive/{}/{}/{}",
-            domain,
-            "test",
-            &format!("{:016x}", hash)[..2]
-        );
-        let filename = format!(
-            "{}/{:016x}_{:04}-{:02}.json",
-            path,
-            hash,
-            now.year(),
-            now.month()
-        );
-        println!("Expected filename: {}", filename);
-        assert!(fs::metadata(&filename).is_ok());
-        let _ = fs::remove_file(&filename);
     }
 
     #[tokio::test]
@@ -158,7 +147,12 @@ mod tests {
         tx.send(page).await.unwrap();
         drop(tx); // Close channel
 
-        storage_loop(rx, db.clone()).await;
+        let mut archiver = MockArchiver::new();
+        archiver
+            .expect_store_page()
+            .returning(|page| Ok(PathBuf::from(format!("fake/page/{}", page.task.url_id))));
+
+        storage_loop(archiver, rx, db.clone()).await;
 
         // Check that the status is now 'complete'
         let conn = db.conn.lock().unwrap();

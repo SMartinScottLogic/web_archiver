@@ -1,11 +1,12 @@
 [workspace]
 members = [
     "common", 
-    "archive_indexer", 
-    "vector_indexer",
+    "archive_indexer",
+    "archive_migrator",
     "hybrid_search",
+    "legacy_converter",
     "web_archiver",
-    "legacy_converter"
+    "vector_indexer"
 ]
 resolver = "3"
 
@@ -36,4 +37,6 @@ qdrant-client = "1"
 tokenizers = "0.15"
 uuid = {version = "1.22.0", features = ["v4"]}                                 # A library to generate and parse UUIDs.
 walkdir = "2.5.0"
+mockall = "0.14.0"            # A powerful mock object library for Rust. 
+blake3 = "1.8.3"               # the BLAKE3 hash function
 

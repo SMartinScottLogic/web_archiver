@@ -1,4 +1,5 @@
 use clap::Parser;
+use common::DefaultArchiver;
 use legacy_converter::{parse_unambiguous_date, store_file};
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -39,6 +40,8 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Starting Web Archive conversion");
 
+    let archiver = DefaultArchiver::new();
+
     for entry in WalkDir::new(args.root)
         .same_file_system(true)
         .into_iter()
@@ -49,7 +52,7 @@ async fn main() {
         }
         let path = entry.path();
 
-        match store_file(path, args.fetch_time, args.delete_source) {
+        match store_file(&archiver, path, args.fetch_time, args.delete_source) {
             Err(e) => error!(error = ?e, path = ?path, "Failed to migrate file"),
             Ok(_) => info!(path = ?path, "Migrated file"),
         }
