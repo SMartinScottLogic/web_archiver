@@ -1,6 +1,7 @@
 use std::{
     fs::{File, create_dir_all},
     hash::{DefaultHasher, Hash as _, Hasher as _},
+    path::{Path, PathBuf},
 };
 
 use anyhow::Result;
@@ -106,23 +107,111 @@ pub fn extract_domain(input: &str) -> Option<String> {
 }
 
 pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
-    let domain = match extract_domain(&page.task.url) {
-        Some(d) => d,
-        None => "unknown".to_string(),
-    };
+    let url = Url::parse(&page.task.url).ok();
 
-    // archive/domain/yyyy/mm/hash.json
-    let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
+    let domain = url.as_ref().and_then(|u| u.domain()).unwrap_or("unknown");
+
+    let mut path = PathBuf::from("archive");
+    path.push(domain);
+
+    // Add URL path segments (limited depth!)
+    if let Some(segments) = url
+        .as_ref()
+        .and_then(|u| u.path_segments().map(|s| s.collect::<Vec<_>>()))
+    {
+        for seg in segments.into_iter().take(5) {
+            // 👈 limit depth
+            let clean = sanitize(seg);
+            if !clean.is_empty() {
+                path.push(clean);
+            }
+        }
+    }
+
+    let hash = format!("{:016x}", hash_url(&page.task.url));
+    // Hash sharding
+    path.push(&hash[0..2]);
+
     create_dir_all(&path)?;
 
-    let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
-    let file = File::create(&filename)?;
+    let file_path = find_available_path(&path, &hash, &page.task.url, now.year(), now.month())?;
+
+    let file = File::create(&file_path)?;
     serde_json::to_writer_pretty(file, &page)?;
 
-    info!("Stored page: {} -> {}", page.task.url, filename);
+    info!("Stored page: {} -> {:?}", page.task.url, file_path);
+    println!("Stored page: {} -> {:?}", page.task.url, file_path);
 
     Ok(())
 }
+
+fn find_available_path(
+    base: &Path,
+    hash: &str,
+    url: &str,
+    year: i32,
+    month: u32,
+) -> Result<PathBuf> {
+    let mut attempt = 0;
+
+    loop {
+        let filename = if attempt == 0 {
+            format!("{}_{:04}-{:02}.json", hash, year, month)
+        } else {
+            format!("{}_{:04}-{:02}_{}.json", hash, year, month, attempt)
+        };
+
+        let path = base.join(filename);
+
+        if !path.exists() {
+            return Ok(path);
+        }
+
+        // Check for same URL
+        if let Some(existing) = std::fs::File::open(&path)
+            .ok()
+            .and_then(|f| serde_json::from_reader::<_, crate::types::ExtractedPage>(f).ok())
+            && existing.task.url == url
+        {
+            return Ok(path); // overwrite
+        }
+
+        attempt += 1;
+    }
+}
+
+fn sanitize(input: &str) -> String {
+    let cleaned: String = input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+
+    if cleaned.is_empty() {
+        "_".to_string()
+    } else {
+        cleaned.chars().take(50).collect()
+    }
+}
+
+// Old version - retain as versioned structs?
+// pub fn store_page(page: &crate::types::ExtractedPage, now: DateTime<Utc>) -> Result<()> {
+//     let domain = match extract_domain(&page.task.url) {
+//         Some(d) => d,
+//         None => "unknown".to_string(),
+//     };
+
+//     // archive/domain/yyyy/mm/hash.json
+//     let path = format!("archive/{}/{:04}/{:02}", domain, now.year(), now.month());
+//     create_dir_all(&path)?;
+
+//     let filename = format!("{}/{}.json", path, hash_url(&page.task.url));
+//     let file = File::create(&filename)?;
+//     serde_json::to_writer_pretty(file, &page)?;
+
+//     info!("Stored page: {} -> {}", page.task.url, filename);
+
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {

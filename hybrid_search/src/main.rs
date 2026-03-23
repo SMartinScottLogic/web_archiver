@@ -27,14 +27,17 @@ async fn main() -> Result<()> {
     // ---------------------------
     // Init embedder
     // ---------------------------
-    println!("model info: {:?}", fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2));
+    println!(
+        "model info: {:?}",
+        fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2)
+    );
     let mut embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
     // ---------------------------
     // Connect to Qdrant
     // ---------------------------
     let client = Qdrant::from_url("http://localhost:6334").build()?;
 
-    let collection = "documents";
+    let collection = "literotica";
 
     // ---------------------------
     // Embed query
