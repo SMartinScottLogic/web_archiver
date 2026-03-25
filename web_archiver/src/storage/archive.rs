@@ -2,7 +2,7 @@ use crate::frontier::db::frontier::FrontierDb;
 use anyhow::Result;
 use common::{Archiver, types::ExtractedPage};
 use tokio::sync::mpsc::Receiver;
-use tracing::error;
+use tracing::{error, info};
 
 pub async fn storage_loop(
     archiver: impl Archiver,
@@ -25,7 +25,8 @@ pub async fn storage_loop(
 }
 
 fn store_page(archiver: &impl Archiver, page: &ExtractedPage) -> Result<()> {
-    archiver.store_page(page)?;
+    let outpath = archiver.store_page(page)?;
+    info!("Stored page: {} -> {:?}", page.task.url, outpath);
     Ok(())
 }
 

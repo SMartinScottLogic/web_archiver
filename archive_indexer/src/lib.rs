@@ -1,12 +1,13 @@
 use anyhow::Result;
 use common::types::ExtractedPage;
 use csv::{Writer, WriterBuilder};
+use indicatif::ProgressBar;
 use std::fs::{File, read_dir};
 use std::path::Path;
 
 /// Generate a temporary CSV index of the archive
 /// Each row: url, json_file_path
-pub fn create_archive_index(archive_root: &str, output_csv: &str) -> Result<()> {
+pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressBar) -> Result<()> {
     let mut wtr = WriterBuilder::new()
         .delimiter(b'\t')
         .from_path(output_csv)?;
@@ -15,21 +16,23 @@ pub fn create_archive_index(archive_root: &str, output_csv: &str) -> Result<()> 
     wtr.write_record(["json_file_path", "url"])?;
 
     // Recursively scan archive folder
-    scan_dir(Path::new(archive_root), &mut wtr)?;
+    scan_dir(Path::new(archive_root), &mut wtr, pb)?;
 
     wtr.flush()?;
     Ok(())
 }
 
 /// Recursively scan a directory for JSON files and extract URLs
-fn scan_dir(dir: &Path, wtr: &mut Writer<File>) -> Result<()> {
+fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> {
     for entry in read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        // TODO Add progress display
         if path.is_dir() {
-            scan_dir(&path, wtr)?;
+            scan_dir(&path, wtr, pb)?;
         } else if path.extension().map(|ext| ext == "json").unwrap_or(false) {
+            // Increment progress display
+            pb.inc(1);
+
             // Read JSON file to get the URL
             let file = File::open(&path)?;
             let page: ExtractedPage = serde_json::from_reader(file)?;
@@ -77,9 +80,13 @@ mod tests {
         let file = File::create(&json_path).unwrap();
         serde_json::to_writer_pretty(file, &page).unwrap();
 
+        let pb = ProgressBar::hidden();
         let output_csv = dir.path().join("out.csv");
-        let result =
-            create_archive_index(archive_root.to_str().unwrap(), output_csv.to_str().unwrap());
+        let result = create_archive_index(
+            archive_root.to_str().unwrap(),
+            output_csv.to_str().unwrap(),
+            &pb,
+        );
         assert!(result.is_ok());
 
         // Check CSV output

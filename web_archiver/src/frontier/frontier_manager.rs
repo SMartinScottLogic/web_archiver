@@ -72,10 +72,17 @@ impl FrontierManager {
             if self.tx_fetch.capacity() > 0
                 && let Ok(Some(task)) = self.db.claim_next()
             {
-                debug!("dispatch task {:?}", &task);
-                if (self.tx_fetch.send(task).await).is_err() {
-                    error!("Worker channel closed, frontier stopping");
-                    return;
+                if self.should_crawl(&task.url).await {
+                    debug!("dispatch task {:?}", &task);
+                    if (self.tx_fetch.send(task).await).is_err() {
+                        error!("Worker channel closed, frontier stopping");
+                        return;
+                    }
+                } else {
+                    // Mark as complete in the DB
+                    if let Err(e) = self.db.mark_complete(task.url_id) {
+                        error!("Failed to mark complete for {}: {}", task.url, e);
+                    }
                 }
             }
 
@@ -104,42 +111,73 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            if !is_http_url(&link) {
-                trace!("Skipping non-http link: {}", link);
-                continue;
-            }
-            // Only allow links whose domain is in allowed_domains
-            if let Some(domain) = extract_domain(&link) {
-                let matching_domains = self.get_matching_domains(&domain);
-                if matching_domains.is_empty() {
-                    trace!("Skipping link outside allowed domains: {}", link);
-                    continue;
-                } else {
-                    debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
-                }
+            // if !is_http_url(&link) {
+            //     trace!("Skipping non-http link: {}", link);
+            //     continue;
+            // }
+            // // Only allow links whose domain is in allowed_domains
+            // if let Some(domain) = extract_domain(&link) {
+            //     let matching_domains = self.get_matching_domains(&domain);
+            //     if matching_domains.is_empty() {
+            //         trace!("Skipping link outside allowed domains: {}", link);
+            //         continue;
+            //     } else {
+            //         debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
+            //     }
 
-                // Check robots.txt rules
-                if !self.is_url_allowed(&link, &domain).await {
-                    debug!("Skipping link blocked by robots.txt: {}", link);
-                    continue;
-                } else {
-                    trace!("Link permitted by robots.txt: {}", link);
-                }
-            } else {
-                trace!("Skipping link with no domain: {}", link);
-                continue;
+            //     // Check robots.txt rules
+            //     if !self.is_url_allowed(&link, &domain).await {
+            //         debug!("Skipping link blocked by robots.txt: {}", link);
+            //         continue;
+            //     } else {
+            //         trace!("Link permitted by robots.txt: {}", link);
+            //     }
+            // } else {
+            //     trace!("Skipping link with no domain: {}", link);
+            //     continue;
+            // }
+            if self.should_crawl(&link).await {
+                batch.push(FetchTask {
+                    url_id: 0, // Will be set by DB
+                    url: link,
+                    depth: msg.depth,
+                    priority: 0,
+                    discovered_from: Some(msg.parent_url_id),
+                });
             }
-            batch.push(FetchTask {
-                url_id: 0, // Will be set by DB
-                url: link,
-                depth: msg.depth,
-                priority: 0,
-                discovered_from: Some(msg.parent_url_id),
-            });
         }
         if !batch.is_empty() {
             let _ = self.db.enqueue_batch(&batch);
         }
+    }
+
+    async fn should_crawl(&mut self, link: &str) -> bool {
+        if !is_http_url(link) {
+            trace!("Skipping non-http link: {}", link);
+            return false;
+        }
+        // Only allow links whose domain is in allowed_domains
+        if let Some(domain) = extract_domain(link) {
+            let matching_domains = self.get_matching_domains(&domain);
+            if matching_domains.is_empty() {
+                trace!("Skipping link outside allowed domains: {}", link);
+                return false;
+            } else {
+                debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
+            }
+
+            // Check robots.txt rules
+            if !self.is_url_allowed(link, &domain).await {
+                debug!("Skipping link blocked by robots.txt: {}", link);
+                return false;
+            } else {
+                trace!("Link permitted by robots.txt: {}", link);
+            }
+        } else {
+            trace!("Skipping link with no domain: {}", link);
+            return false;
+        }
+        true
     }
 
     fn get_matching_domains(&self, domain: &str) -> Vec<&Host> {
