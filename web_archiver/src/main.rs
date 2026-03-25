@@ -7,7 +7,6 @@ mod config;
 mod extractor;
 mod fetcher;
 mod frontier;
-mod markdown;
 mod storage;
 
 use common::types::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
@@ -64,7 +63,7 @@ async fn main() {
     let frontier_manager = FrontierManager::new(
         config.user_agent.clone(),
         seed_urls,
-        tx_fetch.clone(),
+        tx_fetch,
         rx_links,
         noop_delay_millis,
         config.hosts,
@@ -76,7 +75,6 @@ async fn main() {
 
     // --- 5. Spawn Worker Tasks ---
     // This task owns the receiver and spawns multiple async fetch tasks
-
     let sem = Arc::new(Semaphore::new(max_concurrent));
 
     tokio::spawn({

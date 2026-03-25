@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use archive_indexer::create_archive_index;
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -19,8 +22,20 @@ struct Args {
 }
 fn main() -> Result<()> {
     let args = Args::parse();
+    let pb = ProgressBar::new_spinner();
 
-    create_archive_index(&args.archive_root, &args.output_csv)?;
+    pb.set_style(
+        ProgressStyle::with_template("{spinner} {pos} items [{elapsed}] ({per_sec}) {msg}")
+            .unwrap(),
+    );
+
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_message("Processing...");
+
+    create_archive_index(&args.archive_root, &args.output_csv, &pb)?;
+
+    pb.finish_with_message("Done");
+
     println!("Archive index written to {}", args.output_csv);
     Ok(())
 }

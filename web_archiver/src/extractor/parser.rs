@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use crate::markdown::html_to_markdown;
 use anyhow::Result;
+use common::markdown::html_to_markdown;
 use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
 use common::url::{canonicalize_url, resolve_relative_link};
 use lazy_static::lazy_static;
