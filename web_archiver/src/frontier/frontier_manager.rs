@@ -249,6 +249,7 @@ mod tests {
     use super::*;
     use crate::frontier::db::frontier::FrontierDb;
     use common::types::DiscoveredLinks;
+    use map_macro::hash_map;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
 
@@ -382,7 +383,9 @@ mod tests {
                 domains: vec!["example.com".to_string()],
             }],
             user_agent: "user_agent".to_string(),
-            robots_cache: Arc::new(Mutex::new(HashMap::new())),
+            robots_cache: Arc::new(Mutex::new(hash_map![
+                "example.com".to_string() => None
+            ])),
             http_client: Client::new(),
         };
 
@@ -483,7 +486,9 @@ mod tests {
                 domains: vec!["example.com".to_string()],
             }],
             user_agent: "user_agent".to_string(),
-            robots_cache: Arc::new(Mutex::new(HashMap::new())),
+            robots_cache: Arc::new(Mutex::new(hash_map![
+                "example.com".to_string() => None
+            ])),
             http_client: Client::new(),
         };
 
