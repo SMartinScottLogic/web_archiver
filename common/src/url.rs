@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use url::{Url, form_urlencoded};
 
 /// Resolve a possibly relative link against a base URL.
@@ -40,8 +42,43 @@ pub fn canonicalize_url(input: &str) -> Option<String> {
     }
 
     normalized.push_str(url.path());
-    let mut p = url.query_pairs().collect::<Vec<_>>();
-    p.sort_by_cached_key(|(k, _v)| k.to_string());
+
+    // Common params to ignore
+    fn is_ignored_param(key: &str) -> bool {
+        matches!(
+            key,
+            // UTM tracking
+            "utm_source"
+            | "utm_medium"
+            | "utm_campaign"
+            | "utm_term"
+            | "utm_content"
+            // Analytics
+            | "gclid"
+            | "fbclid"
+            | "_ga"
+            // Session / tracking
+            | "session"
+            | "sessionid"
+            | "phpsessid"
+            | "sid"
+            | "ref"
+        )
+    }
+    let mut seen = HashSet::new();
+
+    let mut p = url
+        .query_pairs()
+        .filter(|(k, _)| !is_ignored_param(k))
+        .filter(|(k, v)| {
+            // dedupe based on (key, value)
+            let pair = (k.to_string(), v.to_string());
+            seen.insert(pair)
+        })
+        .collect::<Vec<_>>();
+
+    // Sort for stable canonical form
+    p.sort_by(|(k1, v1), (k2, v2)| k1.cmp(k2).then(v1.cmp(v2)));
 
     let encoded = p
         .iter()

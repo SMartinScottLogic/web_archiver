@@ -6,13 +6,15 @@ members = [
     "hybrid_search",
     "legacy_converter",
     "web_archiver",
-    "vector_indexer"
+    "vector_indexer",
+    "weeklore"
 ]
 resolver = "3"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13", features = ["json", "gzip","brotli","deflate"] }
+# reqwest = { version = "0.13", default-features = false, features = ["json", "gzip","brotli","deflate", "default-tls", "charset"] }
+reqwest = { version = "0.13", default-features = true, features = ["json", "gzip","brotli","deflate", "stream"] }
 scraper = "0.26"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -39,4 +41,4 @@ uuid = {version = "1.22.0", features = ["v4"]}                                 #
 walkdir = "2.5.0"
 mockall = "0.14.0"            # A powerful mock object library for Rust. 
 blake3 = "1.8.3"               # the BLAKE3 hash function
-
+futures-util = "0.3.32"                          # Common utilities and extension traits for the futures-rs library. 
