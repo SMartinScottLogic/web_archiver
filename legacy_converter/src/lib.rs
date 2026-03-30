@@ -6,12 +6,14 @@ use map_macro::hash_map;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, info};
 
 use common::{
     Archiver,
     types::{ExtractedPage, FetchTask, PageMetadata},
 };
+
+pub mod weird;
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct LegacyStory {
@@ -99,9 +101,10 @@ pub fn store_file(
     fetch_time: u64,
     delete_source: bool,
 ) -> Result<()> {
-    let converted = convert(path, fetch_time)?;
+    let converted = convert(path, fetch_time).or_else(|_| weird::read_file(path, fetch_time))?;
     // Save new file
-    archiver.store_page(&converted)?;
+    let destination = archiver.store_page(&converted)?;
+    info!(source = ?path, ?destination, "page stored");
     // TODO Add to DB?
     if delete_source {
         fs::remove_file(path)?;

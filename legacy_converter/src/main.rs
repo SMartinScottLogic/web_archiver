@@ -31,8 +31,8 @@ async fn main() {
     // Initialize logging ---
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true) // show thread IDs
-        .with_thread_names(true) // show thread names
+        .with_thread_ids(false) // show thread IDs
+        .with_thread_names(false) // show thread names
         .with_span_events(FmtSpan::NONE)
         .init();
 

@@ -34,7 +34,7 @@ async fn main() {
     info!("Starting Web Archiver (Week 2 Skeleton)");
 
     // Load allowed domains config
-    let config = Config::file("config.yaml").expect("Failed to load allowed_domains.yaml");
+    let config = Config::file("config.yaml").expect("Failed to load config.yaml");
 
     debug!(?config, "config");
 

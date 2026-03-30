@@ -2130,6 +2130,7 @@ dependencies = [
  "clap",
  "common",
  "map-macro",
+ "nom 8.0.0",
  "rusqlite",
  "serde",
  "serde_json",
