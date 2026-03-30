@@ -280,6 +280,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
+                pages: Default::default()
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -303,6 +304,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
+            pages: Default::default()
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -322,6 +324,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
+                pages: Default::default()
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -341,6 +344,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
+                pages: Default::default()
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -381,6 +385,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
+                pages: Default::default()
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![
@@ -428,6 +433,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
+                pages: Default::default()
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
@@ -484,6 +490,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
+                pages: Default::default()
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![

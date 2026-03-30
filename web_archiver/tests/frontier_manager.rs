@@ -51,10 +51,12 @@ async fn test_seed_batch_insertion_and_claim() {
             Host {
                 name: "Foo".to_string(),
                 domains: vec!["foo.com".to_string()],
+                pages: Default::default()
             },
             Host {
                 name: "Bar".to_string(),
                 domains: vec!["bar.com".to_string()],
+                pages: Default::default()
             },
         ],
     );
@@ -74,6 +76,7 @@ async fn test_process_discovered_links_batching_and_filtering() {
         vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
+            pages: Default::default()
         }],
     );
     let msg = DiscoveredLinks {

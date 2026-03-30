@@ -19,7 +19,20 @@ pub struct Config {
 pub struct Host {
     pub name: String,
     pub domains: Vec<String>,
+    #[serde(default)]
+    pub pages: PageType,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[derive(Default)]
+pub enum PageType {
+    #[serde(alias = "none")]
+    #[default]
+    None,
+    #[serde(alias = "query-param")]
+    QueryParam { key: String, default: usize },
+}
+
 
 /// Command line arguments
 #[derive(Parser, Debug, Serialize)]

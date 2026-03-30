@@ -17,5 +17,7 @@ tracing-subscriber = { workspace = true }
 map-macro = { workspace = true }
 rusqlite = { workspace = true }
 
+nom = "8.0.0"                 # A byte-oriented, zero-copy, parser combinators library
+
 [dependencies.common]
 path = "../common"
