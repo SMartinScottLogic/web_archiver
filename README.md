@@ -173,6 +173,7 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 ---
 ## TODO
+- Command line parsing logic made consistent across apps
 - Recrawl logic
 - Retry failures
 - Schema cleanup and consistency checks

@@ -1,0 +1,20 @@
+[package]
+name = "rebuild_archive"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+csv = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+walkdir = { workspace = true }
+figment = { workspace = true }
+
+[dependencies.common]
+path = "../common"
+features = []

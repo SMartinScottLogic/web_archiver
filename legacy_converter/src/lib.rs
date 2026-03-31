@@ -68,7 +68,6 @@ fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error>
     let markdown = content.story.join("\n\n");
     let url = content.uri;
 
-    // TODO Retrieve matching record from DB (if present), and use to populate - or don't bother as legacy?
     let url_id = 0;
     let discovered_from = None;
 
@@ -105,7 +104,6 @@ pub fn store_file(
     // Save new file
     let destination = archiver.store_page(&converted)?;
     info!(source = ?path, ?destination, "page stored");
-    // TODO Add to DB?
     if delete_source {
         fs::remove_file(path)?;
         debug!(?path, "Removed source file")

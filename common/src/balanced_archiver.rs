@@ -1,6 +1,5 @@
 use std::{
     fs::{File, create_dir_all},
-    marker::PhantomData,
     path::PathBuf,
 };
 
@@ -15,17 +14,12 @@ use crate::{
 };
 
 pub struct BalancedArchiver {
-    _data: PhantomData<usize>,
+    archive_dir: PathBuf,
 }
 
 impl BalancedArchiver {
-    pub fn new() -> Self {
-        Self { _data: PhantomData }
-    }
-}
-impl Default for BalancedArchiver {
-    fn default() -> Self {
-        Self::new()
+    pub fn new(archive_dir: PathBuf) -> Self {
+        Self { archive_dir }
     }
 }
 
@@ -65,7 +59,7 @@ impl Archiver for BalancedArchiver {
             .unwrap_or_else(|| "_".to_string());
 
         // --- Base path ---
-        let mut base_path = PathBuf::from("archive");
+        let mut base_path = self.archive_dir.clone();
 
         let domain = url.domain().unwrap_or("unknown");
         base_path.push(domain);

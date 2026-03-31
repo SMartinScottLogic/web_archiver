@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use common::DefaultArchiver;
 use legacy_converter::{parse_unambiguous_date, store_file};
@@ -40,7 +42,7 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Starting Web Archive conversion");
 
-    let archiver = DefaultArchiver::new();
+    let archiver = DefaultArchiver::new(PathBuf::from("archive"));
 
     for entry in WalkDir::new(args.root)
         .same_file_system(true)

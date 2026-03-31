@@ -1,10 +1,10 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
+use common::settings::Host;
 use common::types::DiscoveredLinks;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use web_archiver::config::settings::Host;
 use web_archiver::frontier::frontier_manager::FrontierManager;
 
 fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
@@ -51,12 +51,12 @@ async fn test_seed_batch_insertion_and_claim() {
             Host {
                 name: "Foo".to_string(),
                 domains: vec!["foo.com".to_string()],
-                pages: Default::default()
+                pages: Default::default(),
             },
             Host {
                 name: "Bar".to_string(),
                 domains: vec!["bar.com".to_string()],
-                pages: Default::default()
+                pages: Default::default(),
             },
         ],
     );
@@ -76,7 +76,7 @@ async fn test_process_discovered_links_batching_and_filtering() {
         vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
-            pages: Default::default()
+            pages: Default::default(),
         }],
     );
     let msg = DiscoveredLinks {

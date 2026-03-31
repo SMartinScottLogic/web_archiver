@@ -1,4 +1,5 @@
 use clap::Parser;
+use common::settings::Host;
 use figment::{
     Figment,
     providers::{Format as _, Serialized, Yaml},
@@ -8,66 +9,39 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Config {
+    pub archive_dir: String,
     pub hosts: Vec<Host>,
-    pub workers: usize,
-    pub seed_urls: Vec<String>,
-    pub noop_delay_millis: u64,
-    pub user_agent: String,
+    pub target_dir: String,
+    pub update: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Host {
-    pub name: String,
-    pub domains: Vec<String>,
-    #[serde(default)]
-    pub pages: PageType,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[derive(Default)]
-pub enum PageType {
-    #[serde(alias = "none")]
-    #[default]
-    None,
-    #[serde(alias = "query-param")]
-    QueryParam { key: String, default: usize },
-}
-
-
-/// Command line arguments
 #[derive(Parser, Debug, Serialize)]
 #[command(rename_all = "kebab-case")]
 #[serde(rename_all = "snake_case")]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Delay in ms for frontier manager idle loop
-    #[arg(short, long)]
+    /// Directory where existing document archive is stored
+    #[arg(short, long, help_heading = "Archive")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    noop_delay_millis: Option<u64>,
+    archive_dir: Option<String>,
 
-    /// Number of concurrent fetch workers
-    #[arg(short, long)]
+    /// Directory where new document archive should be stored
+    #[arg(short, long, help_heading = "Rebuild")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    workers: Option<usize>,
+    target_dir: Option<String>,
 
-    /// User Agent to supply for fetches
-    #[arg(short, long)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<String>,
-
-    /// Crawl seeds
-    #[serde(skip_serializing_if = "Option::is_none")]
-    seed_urls: Option<Vec<String>>,
+    /// Should changes be applied
+    #[arg(short, long, help_heading = "Rebuild")]
+    update: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            archive_dir: "archive".to_string(),
             hosts: Default::default(),
-            workers: 1,
-            seed_urls: Default::default(),
-            noop_delay_millis: 500,
-            user_agent: "Week1Crawler/0.1".to_string(),
+            target_dir: "rebuilt_archive".to_string(),
+            update: false,
         }
     }
 }
@@ -99,8 +73,6 @@ mod tests {
         assert_eq!(config.hosts.len(), 1);
         assert_eq!(config.hosts[0].name, "Foo");
         assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
-        assert_eq!(config.workers, 2);
-        assert_eq!(config.seed_urls, vec!["http://foo.com".to_string()]);
         std::fs::remove_file(path).unwrap();
     }
 }

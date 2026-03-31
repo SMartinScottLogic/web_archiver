@@ -27,6 +27,10 @@ struct Args {
     #[arg(short, long, default_value = "archive")]
     root: PathBuf,
 
+    /// Destination archive directory
+    #[arg(short, long, default_value = "archive")]
+    archive_dir: PathBuf,
+
     /// Maximum number of files to process
     #[arg(short, long)]
     limit: Option<usize>,
@@ -37,8 +41,9 @@ fn main() -> Result<()> {
 
     println!("Dry run: {}", args.dry_run);
     println!("Root: {:?}", args.root);
+    println!("Archive: {:?}", args.archive_dir);
 
-    let archiver = DefaultArchiver::new();
+    let archiver = DefaultArchiver::new(args.archive_dir);
 
     let mut conn = Connection::open("crawler.db").expect("failed to open DB");
 

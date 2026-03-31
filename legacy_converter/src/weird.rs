@@ -98,8 +98,8 @@ pub fn read_file(path: &Path, default_fetch_time: u64) -> anyhow::Result<Extract
         .replace("\r\n", "\n");
 
     parse_story(&file)
-    .map(|v| to_extracted_page(default_fetch_time, v))
-    .map_err(|_error| anyhow::Error::msg(format!("reading {}", path.display())))
+        .map(|v| to_extracted_page(default_fetch_time, v))
+        .map_err(|_error| anyhow::Error::msg(format!("reading {}", path.display())))
 }
 
 fn blank_line(input: &str) -> IResult<&str, &str> {

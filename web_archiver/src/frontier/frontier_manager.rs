@@ -1,5 +1,5 @@
-use crate::config::settings::Host;
 use crate::frontier::db::frontier::FrontierDb;
+use common::settings::Host;
 use common::types::{DiscoveredLinks, FetchTask};
 use common::url::{canonicalize_url, extract_domain, is_http_url};
 use reqwest::Client;
@@ -280,7 +280,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
-                pages: Default::default()
+            pages: Default::default(),
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -304,7 +304,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
-            pages: Default::default()
+            pages: Default::default(),
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -324,7 +324,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
-                pages: Default::default()
+            pages: Default::default(),
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -344,7 +344,7 @@ mod tests {
         let mut mgr = setup_manager(vec![Host {
             name: "Foo".to_string(),
             domains: vec!["foo.com".to_string()],
-                pages: Default::default()
+            pages: Default::default(),
         }]);
         let msg = DiscoveredLinks {
             parent_url_id: 1,
@@ -385,7 +385,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
-                pages: Default::default()
+                pages: Default::default(),
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![
@@ -433,7 +433,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
-                pages: Default::default()
+                pages: Default::default(),
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
@@ -490,7 +490,7 @@ mod tests {
             hosts: vec![Host {
                 name: "Example".to_string(),
                 domains: vec!["example.com".to_string()],
-                pages: Default::default()
+                pages: Default::default(),
             }],
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![

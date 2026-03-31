@@ -4,8 +4,11 @@ use std::path::PathBuf;
 
 pub mod balanced_archiver;
 pub mod full_path_archiver;
+pub mod historical;
 pub mod markdown;
+pub mod page;
 pub mod reqwest_ext;
+pub mod settings;
 pub mod types;
 pub mod url;
 
