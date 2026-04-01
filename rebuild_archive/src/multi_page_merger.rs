@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use common::types::ExtractedPage;
 
-use crate::aggregator::PageEntry;
+use crate::{aggregator::PageEntry, historical_serializer::is_leap_year};
 
 /// Extract year and month from Unix timestamp
 /// Returns (year, month) where month is 1-12
@@ -41,10 +41,6 @@ fn fetch_time_to_year_month(fetch_time: u64) -> (u32, u32) {
     }
 
     (current_year, month)
-}
-
-fn is_leap_year(year: u32) -> bool {
-    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 /// A snapshot result after merging multi-page articles.

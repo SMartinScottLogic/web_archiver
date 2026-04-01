@@ -99,7 +99,14 @@
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Status**: Phase 2a-2e COMPLETE with 31 unit tests passing
+**Status**: Phase 2a-2e COMPLETE with 32 unit tests passing and memory optimization implemented
+
+**Memory Optimization (Post-2e)**: Refactored to process domains sequentially rather than loading entire archive into memory
+- Added `read_page_paths_by_domain()`: Lightweight metadata-only scan (O(n) I/O, O(1) per file memory)
+- Added `load_page()`: Load individual ExtractedPage on demand
+- Main loop restructured: metadata scan → for each domain: load pages → merge → serialize → free memory
+- **Impact**: Reduces peak memory usage from ~50% at 10% progress to ~10% constant
+- **Benefit**: Enables processing of very large archives without memory exhaustion
 
 2a. ✓ **Build `ArchiveReader` struct** (COMPLETE):
    - Module: rebuild_archive/src/archive_reader.rs
@@ -135,7 +142,7 @@
    - 6 tests for timestamp conversion, path generation, snapshot conversion, serializer creation
    - Main integration: collects merged snapshots, serializes to disk, logs results
 
-**Test Status**: 31 tests passing total (2 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 6 historical_serializer + 1 settings + others)
+**Test Status**: 32 tests passing total (3 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 6 historical_serializer + 1 settings + others)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption)
 

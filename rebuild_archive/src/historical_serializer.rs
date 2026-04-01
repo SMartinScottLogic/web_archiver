@@ -66,7 +66,7 @@ fn timestamp_to_year_month_inverse(year_month: (u32, u32)) -> u64 {
     days * 86400 // Convert to seconds
 }
 
-fn is_leap_year(year: u32) -> bool {
+pub fn is_leap_year(year: u32) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 

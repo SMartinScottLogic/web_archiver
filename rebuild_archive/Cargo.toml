@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
+indicatif = { workspace = true }                    # A progress bar and cli reporting library for Rust
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

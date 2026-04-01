@@ -42,98 +42,122 @@ fn main() -> Result<()> {
 
     let reader = ArchiveReader::new(&config.archive_dir, &config.target_dir);
 
-    info!("Starting archive reading and aggregation...");
+    // Phase 1: Lightweight metadata scan (memory-efficient)
+    info!("Scanning archive metadata (phase 1)...");
+    let pages_by_domain = reader.read_page_paths_by_domain()?;
+    let total_domains = pages_by_domain.len();
+    let total_files: usize = pages_by_domain.values().map(|v| v.len()).sum();
 
-    let pages = reader.read_all_pages();
-    let mut aggregator = ArchiveAggregator::new();
+    info!(
+        "Archive metadata scanned: {} domains, {} total files",
+        total_domains, total_files
+    );
 
-    let mut files_read = 0;
-    let mut files_failed = 0;
+    // Phase 2-5: Process each domain separately to minimize peak memory usage
+    let serializer = HistoricalSerializer::new(&config.target_dir);
+    let mut global_files_read = 0;
+    let mut global_files_failed = 0;
+    let mut global_unique_urls = 0;
+    let mut global_multi_page_urls = 0;
+    let mut global_merged_snapshots = 0;
+    let mut global_files_written = 0;
 
-    for (path, result) in &pages {
-        match result {
-            Ok(page) => {
-                let url = page.task.url.clone();
-                files_read += 1;
+    for (domain_index, (domain, page_infos)) in pages_by_domain.iter().enumerate() {
+        info!(
+            "[{}/{}] Processing domain: {} ({} files)",
+            domain_index + 1,
+            total_domains,
+            domain,
+            page_infos.len()
+        );
 
-                if aggregator.add_page(page.clone()) {
-                    info!(url = %url, "aggregated page");
-                } else {
-                    warn!(url = %url, "failed to aggregate page (invalid URL)");
+        // Phase 2: Load only this domain's pages into memory
+        let mut aggregator = ArchiveAggregator::new();
+        let mut files_read = 0;
+        let mut files_failed = 0;
+
+        for page_info in page_infos {
+            match reader.load_page(&page_info.path) {
+                Ok(page) => {
+                    files_read += 1;
+                    if !aggregator.add_page(page) {
+                        warn!(url = %page_info.url, "failed to aggregate page (invalid URL)");
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        path = ?page_info.path,
+                        error = %error,
+                        "failed to read page"
+                    );
+                    files_failed += 1;
                 }
             }
-            Err(error) => {
-                warn!(?path, error = %error, "failed to read page");
-                files_failed += 1;
-            }
         }
-    }
 
-    let unique_urls = aggregator.unique_urls();
-    let total_pages = aggregator.total_pages();
+        let unique_urls = aggregator.unique_urls();
+        let total_pages = aggregator.total_pages();
 
-    info!(
-        "Archive aggregation complete: {} files read, {} failed, {} unique URLs, {} total pages",
-        files_read, files_failed, unique_urls, total_pages
-    );
-
-    if total_pages > unique_urls {
-        let multi_page_count = total_pages - unique_urls;
         info!(
-            "Multi-page consolidation: {} pages will be merged into {} unique URLs",
-            multi_page_count, unique_urls
+            "Domain {} aggregation: {} files read, {} failed, {} unique URLs, {} total pages",
+            domain, files_read, files_failed, unique_urls, total_pages
         );
-    }
 
-    // Phase 2d: Multi-page merging
-    info!("Starting multi-page merging...");
+        global_files_read += files_read;
+        global_files_failed += files_failed;
+        global_unique_urls += unique_urls;
 
-    let aggregates = aggregator.into_aggregates();
-    let mut total_merged_snapshots = 0;
-    let mut multi_page_urls = 0;
-    let mut merged_snapshots_by_key: HashMap<
-        aggregator::AggregateKey,
-        Vec<multi_page_merger::MergedSnapshot>,
-    > = HashMap::new();
+        // Phase 3-4: Multi-page merging for this domain
+        let aggregates = aggregator.into_aggregates();
+        let mut domain_merged_snapshots_by_key: HashMap<
+            aggregator::AggregateKey,
+            Vec<multi_page_merger::MergedSnapshot>,
+        > = HashMap::new();
 
-    for (key, page_entries) in &aggregates {
-        let merged_by_date = merge_pages_by_date(page_entries);
-        total_merged_snapshots += merged_by_date.len();
+        let mut domain_multi_page_urls = 0;
+        for (key, page_entries) in &aggregates {
+            let merged_by_date = merge_pages_by_date(page_entries);
+            global_merged_snapshots += merged_by_date.len();
 
-        // Count URLs that had multiple pages merged
-        if page_entries.len() > 1 {
-            multi_page_urls += 1;
+            if page_entries.len() > 1 {
+                domain_multi_page_urls += 1;
+            }
+
+            let mut merged_list = Vec::new();
+            for (_fetch_time, merged_snapshot) in merged_by_date {
+                merged_list.push(merged_snapshot);
+            }
+            domain_merged_snapshots_by_key.insert(key.clone(), merged_list);
         }
 
-        // Collect merged snapshots for serialization
-        let mut merged_list = Vec::new();
-        for (fetch_time, merged_snapshot) in merged_by_date {
-            info!(
-                domain = %key.domain,
-                url = %key.normalized_url,
-                year_month = format!("{}-{:02}", fetch_time.0, fetch_time.1),
-                page_count = merged_snapshot.page_count,
-                multi_page = ?page_entries.len() > 1,
-                link_count = merged_snapshot.merged_links.len(),
-                "merged pages"
-            );
-            merged_list.push(merged_snapshot);
-        }
-        merged_snapshots_by_key.insert(key.clone(), merged_list);
+        info!(
+            "Domain {} merging complete: {} multi-page URLs, total merged snapshots so far: {}",
+            domain, domain_multi_page_urls, global_merged_snapshots
+        );
+        global_multi_page_urls += domain_multi_page_urls;
+
+        // Phase 5: Serialize this domain's pages
+        let domain_files_written = serializer.serialize_all(&domain_merged_snapshots_by_key)?;
+        global_files_written += domain_files_written;
+
+        info!(
+            "Domain {} serialization complete: {} files written",
+            domain, domain_files_written
+        );
+
+        // Memory freed: aggregator and merged snapshots dropped at end of loop iteration
     }
 
     info!(
-        "Multi-page merging complete: {} URLs with multiple pages, {} total merged snapshots",
-        multi_page_urls, total_merged_snapshots
+        "Archive processing complete: {} files read, {} failed, {} unique URLs, \
+            {} multi-page URLs, {} total merged snapshots, {} output files written",
+        global_files_read,
+        global_files_failed,
+        global_unique_urls,
+        global_multi_page_urls,
+        global_merged_snapshots,
+        global_files_written
     );
-
-    // Phase 2e: Serialize to HistoricalPage format
-    info!("Starting historical page serialization...");
-
-    let serializer = HistoricalSerializer::new(&config.target_dir);
-    let files_written = serializer.serialize_all(&merged_snapshots_by_key)?;
-
-    info!(files_written, "Historical page serialization complete",);
 
     Ok(())
 }
