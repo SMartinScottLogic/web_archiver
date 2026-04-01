@@ -147,6 +147,22 @@ fn main() -> Result<()> {
 
         // Phase 3-4: For each URL in domain: load, aggregate, merge, serialize
         for (url_index, (_normalized_url, url_page_infos)) in url_to_page_infos.iter().enumerate() {
+            // Get the first page info to check URL filter
+            let first_page_url = &url_page_infos[0].url;
+
+            // Apply URL filter if configured
+            if let Some(ref filter) = config.url_filter
+                && !first_page_url.contains(filter) {
+                    info!(
+                        "[{}/{}] Skipping URL {} (does not match filter '{}')",
+                        url_index + 1,
+                        urls_in_domain,
+                        first_page_url,
+                        filter
+                    );
+                    continue;
+                }
+
             info!(
                 "[{}/{}] Domain {} URL {}/{}: {} pages",
                 url_index + 1,

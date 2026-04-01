@@ -13,6 +13,8 @@ pub struct Config {
     pub hosts: Vec<Host>,
     pub target_dir: String,
     pub update: bool,
+    /// Optional filter: only write files for URLs containing this substring
+    pub url_filter: Option<String>,
 }
 
 #[derive(Parser, Debug, Serialize)]
@@ -33,6 +35,11 @@ struct Args {
     /// Should changes be applied
     #[arg(short, long, help_heading = "Rebuild")]
     update: bool,
+
+    /// Optional filter: only write files for URLs containing this substring
+    #[arg(long, help_heading = "Rebuild")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url_filter: Option<String>,
 }
 
 impl Default for Config {
@@ -42,6 +49,7 @@ impl Default for Config {
             hosts: Default::default(),
             target_dir: "rebuilt_archive".to_string(),
             update: false,
+            url_filter: None,
         }
     }
 }
