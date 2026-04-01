@@ -6,11 +6,13 @@ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 mod aggregator;
 mod archive_reader;
+mod multi_page_merger;
 mod settings;
 mod url_utils;
 
 use aggregator::ArchiveAggregator;
 use archive_reader::ArchiveReader;
+use multi_page_merger::merge_pages_by_date;
 
 fn setup_logging() {
     // Initialize logging
@@ -79,6 +81,39 @@ fn main() -> Result<()> {
             multi_page_count, unique_urls
         );
     }
+
+    // Phase 2d: Multi-page merging
+    info!("Starting multi-page merging...");
+
+    let aggregates = aggregator.into_aggregates();
+    let mut total_merged_snapshots = 0;
+    let mut multi_page_urls = 0;
+
+    for (key, page_entries) in &aggregates {
+        let merged_by_date = merge_pages_by_date(page_entries);
+        total_merged_snapshots += merged_by_date.len();
+
+        // Count URLs that had multiple pages merged
+        if page_entries.len() > 1 {
+            multi_page_urls += 1;
+        }
+
+        for (fetch_time, merged_snapshot) in merged_by_date {
+            info!(
+                domain = %key.domain,
+                url = %key.normalized_url,
+                fetch_time = fetch_time,
+                page_count = merged_snapshot.page_count,
+                link_count = merged_snapshot.merged_links.len(),
+                "merged pages"
+            );
+        }
+    }
+
+    info!(
+        "Multi-page merging complete: {} URLs with multiple pages, {} total merged snapshots",
+        multi_page_urls, total_merged_snapshots
+    );
 
     Ok(())
 }
