@@ -46,7 +46,7 @@ impl ArchiveReader {
     }
 
     /// Walk the archive directory and collect all ExtractedPage files
-    /// 
+    ///
     /// Returns a Vec of (PathBuf, Result<ExtractedPage>) tuples.
     /// Errors are included in the Vec rather than stopping iteration.
     pub fn read_all_pages(&self) -> Vec<(PathBuf, Result<ExtractedPage, String>)> {
@@ -58,24 +58,18 @@ impl ArchiveReader {
                 if !entry.file_type().is_file() {
                     return None;
                 }
-                
+
                 let path = entry.path().to_path_buf();
-                
+
                 // Try to read and deserialize the file
                 let result = match File::open(&path) {
                     Ok(file) => match serde_json::from_reader::<_, ExtractedPage>(file) {
-                        Ok(page) => {
-                            Ok(page)
-                        }
-                        Err(e) => {
-                            Err(format!("Failed to deserialize JSON: {}", e))
-                        }
+                        Ok(page) => Ok(page),
+                        Err(e) => Err(format!("Failed to deserialize JSON: {}", e)),
                     },
-                    Err(e) => {
-                        Err(format!("Failed to open file: {}", e))
-                    }
+                    Err(e) => Err(format!("Failed to open file: {}", e)),
                 };
-                
+
                 Some((path, result))
             })
             .collect()
@@ -99,7 +93,7 @@ mod tests {
         let mut reader = ArchiveReader::new("archive", "output");
         reader.stats_mut().files_read = 5;
         reader.stats_mut().files_failed = 2;
-        
+
         assert_eq!(reader.stats().files_read, 5);
         assert_eq!(reader.stats().files_failed, 2);
     }

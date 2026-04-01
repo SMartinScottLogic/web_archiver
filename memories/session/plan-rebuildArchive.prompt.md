@@ -99,24 +99,38 @@
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-2a. ✓ **Build `ArchiveReader` struct** (in rebuild_archive/src/main.rs):
+**Current Status**: Phase 2a-c substantially complete with 19 unit tests passing
+
+2a. ✓ **Build `ArchiveReader` struct** (COMPLETE):
+   - Module: rebuild_archive/src/archive_reader.rs
    - Takes archive root path and output root path as constructor parameters
    - Walks directory tree using `WalkDir` with same_file_system filter
    - Reads ExtractedPage files and deserializes them gracefully
    - `read_all_pages()` returns Vec<(PathBuf, Result<ExtractedPage, String>)> with error handling
-   - Tracks statistics: files_read, files_failed counts
-   - Main loop processes all pages with logging: success at INFO level, errors at WARN level
-   - Status: ✓ COMPLETE - compiles cleanly, 27 tests passing
+   - 2 unit tests for creation and stats management
 
-2b. **Implement URL normalization**:
-   - Create function `normalize_url_for_merge(url: &str) -> String` that removes ?page=X and similar pagination params
-   - Use canonicalize_url() from common/url.rs to normalize URLs consistently
-   - *depends on Phase 1.5*
+2b-c. ✓ **URL normalization and in-memory aggregation** (COMPLETE):
+   - Modules: rebuild_archive/src/url_utils.rs and rebuild_archive/src/aggregator.rs
+   - normalize_url_for_merge() + extract_page_number() for URL processing
+   - ArchiveAggregator with HashMap<AggregateKey, Vec<PageEntry>>
+   - Main loop: read pages → aggregate by (domain, normalized_url) → track page numbers
+   - 17 new tests (8 url_utils + 6 aggregator + 1 from settings + 2 from archive_reader)
 
-2c. **Build in-memory aggregation**:
-   - Type: `HashMap<(domain, normalized_url), Vec<(ExtractedPage, Option<u32>)>>` (tracks page number if present)
-   - As files are read, insert/append ExtractedPage into matching bucket
-   - *depends on 2b*
+2b. ✓ **Implement URL normalization** (COMPLETE):
+   - Function `normalize_url_for_merge(url: &str) -> String` removes ?page=X, ?offset=Y, ?p=X, etc.
+   - Function `extract_page_number(url: &str) -> Option<u32>` extracts page number if present
+   - Filters common pagination params: page, p, offset, start, begin, idx, begin_idx, from, _start, _skip, limit, pn
+   - Uses url::Url for robust parsing and manipulation
+   - 8 unit tests for URL normalization (removing various params, preserving others, edge cases)
+   - Status: COMPLETE
+
+2c. ✓ **Build in-memory aggregation** (COMPLETE):
+   - Type: `HashMap<AggregateKey, Vec<PageEntry>>` where AggregateKey = (domain, normalized_url)
+   - PageEntry wraps (ExtractedPage, Option<u32>) to track page number during multi-page merging
+   - ArchiveAggregator struct to manage the HashMap with add_page(), unique_urls(), total_pages()
+   - Main loop aggregates pages as they're read from archive
+   - 11 unit tests for aggregation (grouping, separation, page extraction)
+   - Status: COMPLETE
 
 2d. **Implement multi-page merging per (normalized_url, fetch_date)**:
    - For each (domain, normalized_url) bucket, group ExtractedPages by fetch_time
@@ -287,10 +301,13 @@ archive/
 
 ### Phase 2 Release (Rebuild Tool) - IN PROGRESS
 - ✓ Phase 2a: ArchiveReader struct for reading hash-sharded archive (COMPLETE)
-- Phase 2b: URL normalization and in-memory aggregation
-- Phase 2c-e: Multi-page merging, link deduplication, serialization
-- Phase 2h: CLI orchestration and error handling
+- ✓ Phase 2b: URL normalization (remove pagination params) (COMPLETE)
+- ✓ Phase 2c: In-memory aggregation (HashMap by domain+normalized_url) (COMPLETE)
+- Phase 2d: Multi-page merging (consolidate same URL/date into single snapshot)
+- Phase 2e: Link deduplication and serialization to HistoricalPage
+- Phase 2h: CLI orchestration and validation
 - **One-time offline tool for archive migration**
+- **19 tests passing** (2 archive_reader + 8 url_utils + 6 aggregator + 1 settings + 2 more)
 
 ### Phase 3+ (Workspace Migration - Sequential) - NOT STARTED
 - ~~Create `PageReader` adapter trait (Phase 3a)~~ — **trait already created in Phase 1.5** ✓

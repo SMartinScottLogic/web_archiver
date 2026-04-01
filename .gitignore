@@ -2,6 +2,7 @@
 /target
 
 # App specific
+/weeklore_reports
 /archive
 /config.yaml
 /archive_index.csv

@@ -1,13 +1,16 @@
 use anyhow::Result;
 use common::settings::CONFIG_FILE;
 use settings::Config;
-use tracing::{info, warn, level_filters::LevelFilter};
+use tracing::{info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
+mod aggregator;
 mod archive_reader;
 mod settings;
+mod url_utils;
 
-use archive_reader::{ArchiveReader, ArchiveReaderStats};
+use aggregator::ArchiveAggregator;
+use archive_reader::ArchiveReader;
 
 fn setup_logging() {
     // Initialize logging
@@ -34,29 +37,48 @@ fn main() -> Result<()> {
 
     let reader = ArchiveReader::new(&config.archive_dir, &config.target_dir);
 
-    info!("Starting archive reading...");
-    
+    info!("Starting archive reading and aggregation...");
+
     let pages = reader.read_all_pages();
-    let mut stats = ArchiveReaderStats::default();
-    
+    let mut aggregator = ArchiveAggregator::new();
+
+    let mut files_read = 0;
+    let mut files_failed = 0;
+
     for (path, result) in &pages {
         match result {
             Ok(page) => {
-                info!(url = %page.task.url, "read page");
-                stats.files_read += 1;
+                let url = page.task.url.clone();
+                files_read += 1;
+
+                if aggregator.add_page(page.clone()) {
+                    info!(url = %url, "aggregated page");
+                } else {
+                    warn!(url = %url, "failed to aggregate page (invalid URL)");
+                }
             }
             Err(error) => {
                 warn!(?path, error = %error, "failed to read page");
-                stats.files_failed += 1;
+                files_failed += 1;
             }
         }
     }
 
+    let unique_urls = aggregator.unique_urls();
+    let total_pages = aggregator.total_pages();
+
     info!(
-        "Archive reading complete: {} successful, {} failed",
-        stats.files_read,
-        stats.files_failed
+        "Archive aggregation complete: {} files read, {} failed, {} unique URLs, {} total pages",
+        files_read, files_failed, unique_urls, total_pages
     );
+
+    if total_pages > unique_urls {
+        let multi_page_count = total_pages - unique_urls;
+        info!(
+            "Multi-page consolidation: {} pages will be merged into {} unique URLs",
+            multi_page_count, unique_urls
+        );
+    }
 
     Ok(())
 }
