@@ -102,8 +102,9 @@ fn main() -> Result<()> {
             info!(
                 domain = %key.domain,
                 url = %key.normalized_url,
-                fetch_time = fetch_time,
+                year_month = format!("{}-{:02}", fetch_time.0, fetch_time.1),
                 page_count = merged_snapshot.page_count,
+                multi_page = ?page_entries.len() > 1,
                 link_count = merged_snapshot.merged_links.len(),
                 "merged pages"
             );

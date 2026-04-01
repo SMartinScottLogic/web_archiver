@@ -3,7 +3,49 @@ use std::collections::HashMap;
 use common::types::ExtractedPage;
 
 use crate::aggregator::{AggregateKey, PageEntry};
-use crate::url_utils::extract_page_number;
+
+/// Extract year and month from Unix timestamp
+/// Returns (year, month) where month is 1-12
+fn fetch_time_to_year_month(fetch_time: u64) -> (u32, u32) {
+    // Convert Unix timestamp to days since epoch
+    let days_since_epoch = fetch_time / 86400; // seconds per day
+    
+    let mut days = days_since_epoch;
+    let mut current_year = 1970u32;
+    
+    // Skip to the correct year
+    while current_year < 2100 {
+        let days_in_year = if is_leap_year(current_year) { 366 } else { 365 };
+        if days < days_in_year as u64 {
+            break;
+        }
+        days -= days_in_year as u64;
+        current_year += 1;
+    }
+
+    // Now find the month
+    let is_leap = is_leap_year(current_year);
+    let days_in_months = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    
+    let mut month = 1u32;
+    for (i, &days_in_month) in days_in_months.iter().enumerate() {
+        if days < days_in_month as u64 {
+            month = (i + 1) as u32;
+            break;
+        }
+        days -= days_in_month as u64;
+    }
+
+    (current_year, month)
+}
+
+fn is_leap_year(year: u32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
 
 /// A snapshot result after merging multi-page articles.
 /// Contains the merged content and combined links.
@@ -20,18 +62,19 @@ pub struct MergedSnapshot {
     pub page_count: usize,
 }
 
-/// Merges multiple pages with the same URL and fetch time into a single snapshot.
+/// Merges multiple pages with the same URL and fetch month into a single snapshot.
 /// 
 /// Handles:
+/// - Grouping pages by year-month (not exact timestamp)
 /// - Sorting pages by page number (if present)
 /// - Concatenating markdown with clear separators
 /// - Combining links while preserving order
 /// - Selecting metadata from the base page
 pub fn merge_pages_by_date(
     pages: &[PageEntry],
-) -> HashMap<u64, MergedSnapshot> {
-    // Group pages by fetch_time
-    let mut by_fetch_time: HashMap<u64, Vec<&PageEntry>> = HashMap::new();
+) -> HashMap<(u32, u32), MergedSnapshot> {
+    // Group pages by year-month (not exact fetch_time)
+    let mut by_year_month: HashMap<(u32, u32), Vec<&PageEntry>> = HashMap::new();
 
     for entry in pages {
         let fetch_time = entry
@@ -40,16 +83,18 @@ pub fn merge_pages_by_date(
             .as_ref()
             .map(|m| m.fetch_time)
             .unwrap_or(0);
+        
+        let year_month = fetch_time_to_year_month(fetch_time);
 
-        by_fetch_time
-            .entry(fetch_time)
+        by_year_month
+            .entry(year_month)
             .or_default()
             .push(entry);
     }
 
     // Merge each group and return results
     let mut results = HashMap::new();
-    for (fetch_time, mut entries) in by_fetch_time {
+    for (year_month, mut entries) in by_year_month {
         // Sort by page number (ascending), then by URL (for stable ordering)
         entries.sort_by(|a, b| {
             match (a.page_number, b.page_number) {
@@ -94,7 +139,7 @@ pub fn merge_pages_by_date(
             page_count: entries.len(),
         };
 
-        results.insert(fetch_time, merged);
+        results.insert(year_month, merged);
     }
 
     results
@@ -148,7 +193,8 @@ mod tests {
         let result = merge_pages_by_date(&pages);
         assert_eq!(result.len(), 1);
 
-        let snapshot = result.get(&100).unwrap();
+        // fetch_time=100 is 1970-01-01, so year_month should be (1970, 1)
+        let snapshot = result.get(&(1970, 1)).unwrap();
         assert_eq!(snapshot.page_count, 1);
         assert_eq!(snapshot.merged_content, "Page content");
         assert_eq!(snapshot.merged_links.len(), 1);
@@ -176,7 +222,7 @@ mod tests {
         let result = merge_pages_by_date(&pages);
         assert_eq!(result.len(), 1);
 
-        let snapshot = result.get(&100).unwrap();
+        let snapshot = result.get(&(1970, 1)).unwrap();
         assert_eq!(snapshot.page_count, 2);
         assert!(snapshot.merged_content.contains("Page 1 content"));
         assert!(snapshot.merged_content.contains("Page 2 content"));
@@ -206,7 +252,7 @@ mod tests {
         ];
 
         let result = merge_pages_by_date(&pages);
-        let snapshot = result.get(&100).unwrap();
+        let snapshot = result.get(&(1970, 1)).unwrap();
         
         // Should have 3 unique links (shared appears once, link1 and link2 once each)
         assert_eq!(snapshot.merged_links.len(), 3);
@@ -217,27 +263,29 @@ mod tests {
 
     #[test]
     fn test_merge_multiple_dates() {
+        // January 1, 1970 00:00:00 UTC = 0
+        // February 1, 1970 00:00:00 UTC = 2678400 (31 days * 86400 seconds)
         let pages = vec![
             make_page(
                 "http://example.com/article",
                 None,
-                100,
-                "Content on date 100",
+                0,
+                "Content January",
                 vec![],
             ),
             make_page(
                 "http://example.com/article",
                 None,
-                200,
-                "Content on date 200",
+                2678400,
+                "Content February",
                 vec![],
             ),
         ];
 
         let result = merge_pages_by_date(&pages);
         assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&100));
-        assert!(result.contains_key(&200));
+        assert!(result.contains_key(&(1970, 1)));
+        assert!(result.contains_key(&(1970, 2)));
     }
 
     #[test]
@@ -268,7 +316,7 @@ mod tests {
         ];
 
         let result = merge_pages_by_date(&pages);
-        let snapshot = result.get(&100).unwrap();
+        let snapshot = result.get(&(1970, 1)).unwrap();
         
         // Content should be in order: Page 1, Page 2, Page 3
         let content_pos_1 = snapshot.merged_content.find("Page 1").unwrap();
@@ -299,7 +347,7 @@ mod tests {
         ];
 
         let result = merge_pages_by_date(&pages);
-        let snapshot = result.get(&100).unwrap();
+        let snapshot = result.get(&(1970, 1)).unwrap();
         
         // Base page should be the first one
         assert_eq!(snapshot.base_page.task.url_id, 1);
