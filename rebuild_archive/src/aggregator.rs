@@ -89,11 +89,13 @@ impl ArchiveAggregator {
     }
 
     /// Get the number of unique URLs
+    #[allow(dead_code)]
     pub fn unique_urls(&self) -> usize {
         self.aggregates.len()
     }
 
     /// Get the total number of pages across all aggregates
+    #[allow(dead_code)]
     pub fn total_pages(&self) -> usize {
         self.aggregates.values().map(|v| v.len()).sum()
     }
