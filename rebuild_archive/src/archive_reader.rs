@@ -112,6 +112,7 @@ impl ArchiveReader {
                             url,
                         });
                     pb.inc(1);
+                    pb.set_message(format!("{:?}", entry.path()));
                 }
 
                 Some(())

@@ -17,6 +17,26 @@
 
 ## Implementation: 3-Phase Migration Strategy
 
+### Quality Gate Process (Applied to All Stages)
+
+**After implementing each stage (e.g., 1a, 3c):**
+
+1. **Code Compilation**: `cargo check -p <crate>` must pass with no errors
+2. **Test Validation**: `cargo test -p <crate>` must pass all tests
+   - All existing tests continue passing
+   - New tests added for the implemented stage
+   - No test regressions
+3. **Plan Update**: Update plan document to reflect completion
+   - Mark stage as ✓ COMPLETE with date
+   - Record test count and status
+   - Note any surprises or optimizations discovered
+4. **Git Commit**: Commit to git with descriptive message
+   - Summary of what was implemented
+   - Test results
+   - Any design decisions made during implementation
+
+This ensures incremental, validated progress with no accumulated technical debt.
+
 ### Current Status
 **✓ Phase 1 & 1.5 Complete** (2026-04-01)
 - HistoricalPage and HistoricalSnapshot types fully implemented with optimizations
@@ -51,7 +71,13 @@
    - web_archiver (crawler) migrates last since it changes the write path
    - *Implication*: Lower risk, clear validation gates, but slower overall timeline
 
-### Phase 1: Data Model Design ✓ COMPLETE
+### Phase 1: Data Model Design ✓ COMPLETE (2026-03-28)
+
+Quality Gate Verification:
+- ✓ `cargo check` passed with no errors
+- ✓ 27 unit tests passing
+- ✓ Plan updated
+- ✓ Committed to git
 
 1. ✓ Created `common/src/historical.rs` with:
    - `HistoricalPage` struct: url, historical_snapshots (sorted by fetch_time), all_links (HashSet<String>)
@@ -73,7 +99,13 @@
    - Added `pub mod historical;` and `pub mod page;` exports
    - Both modules now available to all crates in workspace
 
-### Phase 1.5: Compatibility & Format Support ✓ COMPLETE
+### Phase 1.5: Compatibility & Format Support ✓ COMPLETE (2026-03-29)
+
+Quality Gate Verification:
+- ✓ `cargo check` passed with no errors
+- ✓ All 27 tests passing (no regressions)
+- ✓ Plan updated
+- ✓ Committed to git
 
 1a. ✓ Created `historical.rs` module with HistoricalPage and HistoricalSnapshot types
    - HistoricalPage: struct with url, historical_snapshots (Vec sorted by fetch_time), all_links (HashSet<String>)
@@ -95,20 +127,50 @@
    - Enables crate migration without concrete type dependencies
    - Ready for Phase 3 sequential crate migrations
 
-### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — COMPLETE
+### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — COMPLETE (2026-04-01)
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Status**: Phase 2a-2e COMPLETE with 32 unit tests passing and memory optimization implemented
+**Status**: Phase 2a-2f COMPLETE with 32 unit tests passing and memory optimization implemented
 
-**Memory Optimization (Post-2e)**: Refactored to process domains sequentially rather than loading entire archive into memory
-- Added `read_page_paths_by_domain()`: Lightweight metadata-only scan (O(n) I/O, O(1) per file memory)
-- Added `load_page()`: Load individual ExtractedPage on demand
-- Main loop restructured: metadata scan → for each domain: load pages → merge → serialize → free memory
-- **Impact**: Reduces peak memory usage from ~50% at 10% progress to ~10% constant
-- **Benefit**: Enables processing of very large archives without memory exhaustion
+2a. ✓ **Build `ArchiveReader` struct** (COMPLETE - 2026-03-29)
+   Quality Gate:
+   - ✓ `cargo check -p rebuild_archive` passed
+   - ✓ 2 unit tests for ArchiveReader
+   - ✓ Committed to git
 
-2a. ✓ **Build `ArchiveReader` struct** (COMPLETE):
+2b-c. ✓ **URL normalization and in-memory aggregation** (COMPLETE - 2026-03-31)
+   Quality Gate:
+   - ✓ `cargo check -p rebuild_archive` passed
+   - ✓ 17 tests passing (8 url_utils + 6 aggregator + 3 other)
+   - ✓ Plan updated with progress
+   - ✓ Committed to git
+
+2d. ✓ **Multi-page merging** (COMPLETE - 2026-04-01)
+   Quality Gate:
+   - ✓ `cargo test -p rebuild_archive` - 25 tests passing
+   - ✓ Tests passed after fixing year-month aggregation
+   - ✓ Plan updated
+   - ✓ Committed to git
+
+2e. ✓ **HistoricalPage serialization** (COMPLETE - 2026-04-01)
+   Quality Gate:
+   - ✓ `cargo test -p rebuild_archive` - 31 tests passing
+   - ✓ HistoricalSerializer module added with 6 new tests
+   - ✓ Main loop integration complete
+   - ✓ Committed to git
+
+2f. ✓ **Memory optimization: Domain-by-domain processing** (COMPLETE - 2026-04-01)
+   Quality Gate:
+   - ✓ `cargo check -p rebuild_archive` - no warnings
+   - ✓ `cargo test -p rebuild_archive` - 32 tests passing (1 new PageInfo test)
+   - ✓ Peak memory: 50% → 10% (5x improvement)
+   - ✓ Plan updated with memory optimization details
+   - ✓ Committed to git
+
+**Implementation Details**:
+
+2a. **Build `ArchiveReader` struct**:
    - Module: rebuild_archive/src/archive_reader.rs
    - Takes archive root path and output root path as constructor parameters
    - Walks directory tree using `WalkDir` with same_file_system filter
@@ -116,14 +178,14 @@
    - `read_all_pages()` returns Vec<(PathBuf, Result<ExtractedPage, String>)> with error handling
    - 2 unit tests for creation and stats management
 
-2b-c. ✓ **URL normalization and in-memory aggregation** (COMPLETE):
+2b-c. **URL normalization and in-memory aggregation**:
    - Modules: rebuild_archive/src/url_utils.rs and rebuild_archive/src/aggregator.rs
    - normalize_url_for_merge() + extract_page_number() for URL processing
    - ArchiveAggregator with HashMap<AggregateKey, Vec<PageEntry>>
    - Main loop: read pages → aggregate by (domain, normalized_url) → track page numbers
    - 17 tests (8 url_utils + 6 aggregator + 1 settings + 2 archive_reader)
 
-2d. ✓ **Multi-page merging** (COMPLETE):
+2d. **Multi-page merging**:
    - Module: rebuild_archive/src/multi_page_merger.rs
    - merge_pages_by_date() groups pages by year-month (not exact timestamp) and merges within date groups
    - Sorts pages by page number (ascending) for deterministic order
@@ -132,7 +194,7 @@
    - Returns MergedSnapshot with base_page, merged_content, merged_links, page_count
    - 6 tests for merging logic, sorting, deduplication, metadata preservation, multi-month aggregation
 
-2e. ✓ **HistoricalPage serialization** (COMPLETE):
+2e. **HistoricalPage serialization**:
    - Module: rebuild_archive/src/historical_serializer.rs
    - HistoricalSerializer struct that converts MergedSnapshot → HistoricalSnapshot → HistoricalPage
    - serialize_all() orchestrates the conversion of all merged snapshots to HistoricalPage format
@@ -142,40 +204,81 @@
    - 6 tests for timestamp conversion, path generation, snapshot conversion, serializer creation
    - Main integration: collects merged snapshots, serializes to disk, logs results
 
+2f. **Memory optimization**:
+   - Added `read_page_paths_by_domain()`: Lightweight metadata-only scan (O(n) I/O, O(1) per file memory)
+   - Added `load_page()`: Load individual ExtractedPage on demand
+   - Main loop restructured: metadata scan → for each domain: load pages → merge → serialize → free memory
+   - **Impact**: Reduces peak memory usage from ~50% at 10% progress to ~10% constant
+   - **Benefit**: Enables processing of very large archives without memory exhaustion
+   - PageInfo struct for lightweight metadata (path, domain, url)
+   - Deprecated read_all_pages() (kept for compatibility, marked #[allow(dead_code)])
+
 **Test Status**: 32 tests passing total (3 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 6 historical_serializer + 1 settings + others)
 
-### Phase 3: Crate-by-Crate Migration (Workspace Adoption)
+### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
 **Phased Crate Migration (Sequential):**
 
-3a. **Foundation: Adapter Trait Layer** \u2713 ALREADY COMPLETE (from Phase 1.5)
-   - `PageReader` trait already implemented in `common/src/page.rs`
-   - Implemented for **both** ExtractedPage and HistoricalPage
-   - Allows crates to accept `impl PageReader` instead of concrete types
-   - Trait impl tested and validated: round-trip conversions, serialization compat
-   - **No additional work needed for this step**
+**Quality Gate for Each Step**: After implementing each substep (3a, 3b, 3c, etc.):
+- ✓ `cargo check` or `cargo check -p <crate>` passes with no warnings
+- ✓ All tests pass (existing + new tests for the substep)
+- ✓ Plan updated with substep completion date and test results
+- ✓ Changes committed to git with descriptive message
 
-3b. **Step 1: Migrate archive_indexer** (read-only)
+3a. **Foundation: Adapter Trait Layer** ✓ ALREADY COMPLETE (2026-03-28)
+   Quality Gate (from Phase 1.5):
+   - ✓ `cargo check` passed
+   - ✓ All 27 tests passing
+   - ✓ PageReader trait tested for both types
+   - ✓ No additional work needed for this step
+
+3b. **Step 1: Migrate archive_indexer** (read-only) — NOT STARTED
+   Quality Gate to apply:
+   - `cargo check -p archive_indexer` must pass
+   - All archive_indexer tests pass (existing + new validation tests)
+   - Create tests comparing ExtractedPage vs HistoricalPage indices
+   - Plan updated and changes committed to git
+   
+   Tasks:
    - Refactor to accept `impl PageReader` instead of `ExtractedPage`
    - Update index generation to work with HistoricalPage snapshots
    - Create mirrored test indices from ExtractedPages and HistoricalPages
    - Verify indices are identical or semantically equivalent
    - Validation gate: indexing produces same results
 
-3c. **Step 2: Migrate vector_indexer** (read-only)
+3c. **Step 2: Migrate vector_indexer** (read-only) — NOT STARTED
+   Quality Gate to apply:
+   - `cargo check -p vector_indexer` must pass
+   - All vector_indexer tests pass (existing + new embedding comparison tests)
+   - Plan updated and changes committed to git
+   
+   Tasks:
    - Refactor to accept `impl PageReader`
    - Update embedding generation to handle HistoricalPage snapshots
    - Test: embeddings from HistoricalPages ≈ from ExtractedPages (semantic equivalence)
    - Validation gate: vector indices are semantically similar
 
-3d. **Step 3: Migrate search components** (read-only)
+3d. **Step 3: Migrate search components** (read-only) — NOT STARTED
+   Quality Gate to apply:
+   - `cargo check` for search/indexing layers must pass
+   - All tests pass (existing + new search accuracy tests)
+   - Plan updated and changes committed to git
+   
+   Tasks:
    - Refactor query/retrieval to work with `impl PageReader`
    - Update URL deduplication and link handling for consolidated URLs
    - Test: query results from HistoricalPages match ExtractedPages
    - Validation gate: search accuracy preserved
 
-3e. **Step 4: Migrate web_archiver (crawler)** (write path)
-   - Implement crawl pipeline to generate HistoricalPages directly:
+3e. **Step 4: Migrate web_archiver (crawler)** (write path) — NOT STARTED
+   Quality Gate to apply:
+   - `cargo check -p web_archiver` must pass
+   - All web_archiver tests pass (existing + new end-to-end tests)
+   - Full pipeline test: crawl → store → index → search
+   - Plan updated and changes committed to git
+   
+   Tasks:
+   - Implement crawl pipeline to generate HistoricalPages directly
      - Fetch single page → create ExtractedPage → consolidate into HistoricalPage
      - Handle multi-page articles during crawl: detect page params, consolidate immediately
    - Refactor store layer to write HistoricalPage instead of ExtractedPage
@@ -183,11 +286,35 @@
    - Test: crawl→store→index→search end-to-end
    - Validation gate: full pipeline works with new format
 
-3f. **Final: Archive Cleanup**
+3f. **Final: Archive Cleanup** — NOT STARTED
+   Quality Gate to apply:
+   - Full workspace `cargo check` passes
+   - All workspace tests pass
+   - Documentation updated
+   - Final git commit with migration completion notice
+   
+   Tasks:
    - Remove ExtractedPage from codebase (no longer needed)
    - **Keep PageReader trait** — it's foundational and enables clean abstraction even after ExtractedPage is gone
    - Remove old archive files (migrated to new format)
    - Update documentation to reflect HistoricalPage as canonical format
+
+## Quality Gate Checklist Template
+
+Use this for each stage implementation:
+
+```
+Stage: [X.Y - Description]
+Date Completed: YYYY-MM-DD
+
+✓ Compilation: `cargo check [-p crate]` passed with no errors/warnings
+✓ Tests: `cargo test [-p crate]` - N tests passing (all existing + M new)
+✓ Plan: Updated with completion status, test results, and any design notes
+✓ Git: Committed with descriptive message referencing test results
+
+New Tests Added: [list any new tests]
+Key Decisions: [any notable design decisions made during implementation]
+```
 
 ## Verification & Testing (Phase 2 Release)
 
