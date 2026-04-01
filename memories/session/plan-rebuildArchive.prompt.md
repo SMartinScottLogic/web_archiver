@@ -95,15 +95,18 @@
    - Enables crate migration without concrete type dependencies
    - Ready for Phase 3 sequential crate migrations
 
-### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — NEXT
+### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — IN PROGRESS
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-2a. **Build `ArchiveReader` struct** (in rebuild_archive/src/main.rs):
-   - Takes archive root path and output root path
-   - Walks directory tree using `WalkDir` (already in stub)
-   - Reads ExtractedPage files and deserializes them
-   - Handles both old and potential new archive formats gracefully
+2a. ✓ **Build `ArchiveReader` struct** (in rebuild_archive/src/main.rs):
+   - Takes archive root path and output root path as constructor parameters
+   - Walks directory tree using `WalkDir` with same_file_system filter
+   - Reads ExtractedPage files and deserializes them gracefully
+   - `read_all_pages()` returns Vec<(PathBuf, Result<ExtractedPage, String>)> with error handling
+   - Tracks statistics: files_read, files_failed counts
+   - Main loop processes all pages with logging: success at INFO level, errors at WARN level
+   - Status: ✓ COMPLETE - compiles cleanly, 27 tests passing
 
 2b. **Implement URL normalization**:
    - Create function `normalize_url_for_merge(url: &str) -> String` that removes ?page=X and similar pagination params
@@ -283,10 +286,10 @@ archive/
 - All compilation and tests passing
 
 ### Phase 2 Release (Rebuild Tool) - IN PROGRESS
-- Read all ExtractedPage files from existing hash-sharded archive
-- Consolidate by URL, merge multi-page snapshots, deduplicate links
-- Output HistoricalPage format to new directory structure
-- CLI tool with progress logging and validation mode
+- ✓ Phase 2a: ArchiveReader struct for reading hash-sharded archive (COMPLETE)
+- Phase 2b: URL normalization and in-memory aggregation
+- Phase 2c-e: Multi-page merging, link deduplication, serialization
+- Phase 2h: CLI orchestration and error handling
 - **One-time offline tool for archive migration**
 
 ### Phase 3+ (Workspace Migration - Sequential) - NOT STARTED
