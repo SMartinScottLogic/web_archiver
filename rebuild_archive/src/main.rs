@@ -53,6 +53,58 @@ fn main() -> Result<()> {
         total_domains, total_files
     );
 
+    // Archive statistics for understanding data distribution
+    let mut domain_sizes: Vec<(String, usize)> = pages_by_domain
+        .iter()
+        .map(|(domain, infos)| (domain.clone(), infos.len()))
+        .collect();
+    domain_sizes.sort_by(|a, b| b.1.cmp(&a.1)); // Sort descending by file count
+
+    let max_files = domain_sizes.first().map(|(_, count)| *count).unwrap_or(0);
+    let min_files = domain_sizes.last().map(|(_, count)| *count).unwrap_or(0);
+    let avg_files = if total_domains > 0 {
+        total_files / total_domains
+    } else {
+        0
+    };
+    let concentration_pct = if total_files > 0 {
+        (max_files as f64 / total_files as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    info!("Archive distribution:");
+    info!("  Domains: {}", total_domains);
+    info!("  Total files: {}", total_files);
+    info!("  Avg files per domain: {}", avg_files);
+    info!(
+        "  Largest domain: {} files ({:.1}% of total)",
+        max_files, concentration_pct
+    );
+    info!("  Smallest domain: {} files", min_files);
+
+    // Show top 5 domains
+    info!("Top domains by size:");
+    for (idx, (domain, count)) in domain_sizes.iter().take(5).enumerate() {
+        let pct = (*count as f64 / total_files as f64) * 100.0;
+        info!("  {}. {}: {} files ({:.1}%)", idx + 1, domain, count, pct);
+    }
+
+    // Warn if single domain is very dominant
+    if concentration_pct > 80.0 {
+        info!(
+            "NOTE: {} contains {:.1}% of all files. Per-URL streaming is essential \
+            to avoid memory exhaustion during processing. Domain-level batching would \
+            attempt to load {} million pages simultaneously.",
+            domain_sizes
+                .first()
+                .map(|(d, _)| d.clone())
+                .unwrap_or_default(),
+            concentration_pct,
+            (max_files as f64 / 1_000_000.0).ceil() as i32
+        );
+    }
+
     // Phase 2-5: Process each domain separately, then by URL within domain
     let serializer = HistoricalSerializer::new(&config.target_dir);
     let mut global_files_read = 0;
