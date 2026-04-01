@@ -131,7 +131,7 @@ Quality Gate Verification:
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Status**: Phase 2a-2f COMPLETE with 32 unit tests passing and memory optimization implemented
+**Status**: Phase 2a-2h COMPLETE with 32 unit tests passing, memory optimization, and optional filtering
 
 2a. ✓ **Build `ArchiveReader` struct** (COMPLETE - 2026-03-29)
    Quality Gate:
@@ -166,6 +166,18 @@ Quality Gate Verification:
    - ✓ `cargo test -p rebuild_archive` - 32 tests passing (1 new PageInfo test)
    - ✓ Peak memory: 50% → 10% (5x improvement)
    - ✓ Plan updated with memory optimization details
+   - ✓ Committed to git
+
+2g. ✓ **Archive discovery and statistics reporting** (COMPLETE - 2026-04-01)
+   Quality Gate:
+   - ✓ `cargo check -p rebuild_archive` - no errors or warnings
+   - ✓ `cargo test -p rebuild_archive` - 32 tests passing (logging only)
+   - ✓ Committed to git
+
+2h. ✓ **Optional URL filtering** (COMPLETE - 2026-04-01)
+   Quality Gate:
+   - ✓ `cargo check -p rebuild_archive` - no errors or warnings
+   - ✓ `cargo test -p rebuild_archive` - 32 tests passing (no regressions)
    - ✓ Committed to git
 
 **Implementation Details**:
@@ -260,6 +272,39 @@ Quality Gate Verification:
 
 **Key Learning**:
 Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2g's archive discovery revealed why this optimization is critical: a real-world archive with 3.2M files is 96.7% concentrated in a single domain. This validates the optimization approach and demonstrates that data distribution patterns should be discovered and reported before processing begins, enabling users to make informed decisions about resource allocation.
+
+2h. ✓ **Optional URL filtering** (COMPLETE - 2026-04-01)
+   Quality Gate Verification:
+   - ✓ `cargo check -p rebuild_archive` - no errors or warnings
+   - ✓ `cargo test -p rebuild_archive` - 32 tests passing (no regressions)
+   - ✓ `cargo clippy -p rebuild_archive` - clean, no warnings
+   - ✓ Committed to git
+
+**Implementation Details**:
+
+2h. **Optional URL filtering**:
+   - Module: rebuild_archive/src/settings.rs and main.rs (enhancements)
+   - Added `--url-filter <SUBSTRING>` optional CLI argument (clap-based)
+   - Added `url_filter: Option<String>` field to Config struct
+   - Filter applied during main processing loop (before page loading)
+   - Skips entire URLs not matching filter substring
+   - Logs skipped URLs for transparency and debugging
+   - **Efficient**: Filtering happens before I/O (no memory waste on skipped URLs)
+   - **Use cases**:
+     - Test rebuild on specific domains before processing entire archive
+     - Debug particular URL patterns or paths
+     - Manually parallelize workload across multiple jobs
+   - Example usage:
+     ```bash
+     # Process only literotica.com URLs
+     cargo run -- --archive-dir archive --target-dir output --url-filter literotica.com
+     
+     # Process only URLs containing /stories/
+     cargo run -- --archive-dir archive --target-dir output --url-filter "/stories/"
+     ```
+   - When not specified, processes all URLs (backward compatible)
+
+**Test Status**: 32 tests passing total (no new tests needed—feature is integration-level filtering)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
@@ -444,15 +489,17 @@ archive/
 - Created PageReader trait for abstraction over both types
 - All compilation and tests passing
 
-### Phase 2 Release (Rebuild Tool) - IN PROGRESS
+### Phase 2 Release (Rebuild Tool) - COMPLETE (2026-04-01)
 - ✓ Phase 2a: ArchiveReader struct for reading hash-sharded archive (COMPLETE)
 - ✓ Phase 2b: URL normalization (remove pagination params) (COMPLETE)
 - ✓ Phase 2c: In-memory aggregation (HashMap by domain+normalized_url) (COMPLETE)
 - ✓ Phase 2d: Multi-page merging (consolidate same URL/date into single snapshot) (COMPLETE)
-- Phase 2e: Link deduplication and serialization to HistoricalPage
-- Phase 2h: CLI orchestration and validation
-- **One-time offline tool for archive migration**
-- **25 tests passing** (2 archive_reader + 8 url_utils + 6 aggregator + 6 merger + 3 other)
+- ✓ Phase 2e: Link deduplication and serialization to HistoricalPage (COMPLETE)
+- ✓ Phase 2f: Memory optimization (per-URL deferred loading) (COMPLETE)
+- ✓ Phase 2g: Archive discovery and distribution statistics (COMPLETE)
+- ✓ Phase 2h: Optional URL filtering for selective processing (COMPLETE)
+- **One-time offline tool for archive migration - ALL FEATURES IMPLEMENTED**
+- **32 tests passing** (3 archive_reader + 8 url_utils + 6 aggregator + 6 merger + 6 serializer + 1 settings + others)
 
 ### Phase 3+ (Workspace Migration - Sequential) - NOT STARTED
 - ~~Create `PageReader` adapter trait (Phase 3a)~~ — **trait already created in Phase 1.5** ✓
