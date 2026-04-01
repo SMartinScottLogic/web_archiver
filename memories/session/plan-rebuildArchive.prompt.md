@@ -215,6 +215,52 @@ Quality Gate Verification:
 
 **Test Status**: 32 tests passing total (3 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 6 historical_serializer + 1 settings + others)
 
+2g. ✓ **Archive discovery and statistics reporting** (COMPLETE - 2026-04-01)
+   Quality Gate Verification:
+   - ✓ `cargo check -p rebuild_archive` - no errors or warnings
+   - ✓ `cargo test -p rebuild_archive` - 32 tests passing (no change to test count—logging only)
+   - ✓ `cargo clippy -p rebuild_archive` - clean, no warnings
+   - ✓ Plan updated with context about data distribution
+   - ✓ Committed to git
+
+**Implementation Details**:
+
+2g. **Archive discovery and statistics reporting**:
+   - Module: rebuild_archive/src/main.rs (Phase 1 reporting enhancement)
+   - After metadata scan, displays comprehensive archive distribution analysis:
+     - **Total statistics**: domains count, total files, avg/min/max files per domain
+     - **Concentration analysis**: % of files in largest domain (concentration metric)
+     - **Domain ranking**: Top 5 domains by size with percentages
+     - **Optimization warning**: Alerts when single domain has >80% of files (>1M files)
+   - Output example:
+     ```
+     Archive distribution:
+       Domains: 37
+       Total files: 3,225,772
+       Avg files per domain: 87,186
+       Largest domain: 3,118,711 files (96.7% of total)
+       
+     Top domains by size:
+       1. www.bbc.co.uk: 3,118,711 files (96.7%)
+       2. scottlogic.com: 53,847 files (1.7%)
+       ...
+       
+     NOTE: www.bbc.co.uk contains 96.7% of all files. Per-URL streaming 
+     is essential to avoid memory exhaustion...
+     ```
+   - **Critical insight**: Real-world archive has 96.7% of files in single domain
+     - Domain-level batching optimization would fail catastrophically on this data
+     - Per-URL optimization (Phase 2f) is **essential**, not optional, for this distribution
+     - Deferred deserialization strategy (load one URL at a time) is correct and necessary
+   - **Rationale for feature**:
+     - Prevents users from discovering memory constraints mid-processing
+     - Shows upfront that archive structure drives optimization decisions
+     - Helps users understand why per-URL streaming is needed (vs domain-level batching)
+   - **Memory impact of discovery phase**: ~10KB (lightweight metadata scan, no deserialization)
+
+**Key Learning**:
+Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2g's archive discovery revealed why this optimization is critical: a real-world archive with 3.2M files is 96.7% concentrated in a single domain. This validates the optimization approach and demonstrates that data distribution patterns should be discovered and reported before processing begins, enabling users to make informed decisions about resource allocation.
+
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
 **Phased Crate Migration (Sequential):**
