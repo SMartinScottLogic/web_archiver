@@ -131,7 +131,7 @@ Quality Gate Verification:
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Status**: Phase 2a-2h COMPLETE with 32 unit tests passing, memory optimization, and optional filtering
+**Status**: Phase 2a-2h COMPLETE with 32 unit tests passing; Phase 2i (optional cleanup) PLANNED
 
 2a. ✓ **Build `ArchiveReader` struct** (COMPLETE - 2026-03-29)
    Quality Gate:
@@ -297,7 +297,7 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - Example usage:
      ```bash
      # Process only literotica.com URLs
-     cargo run -- --archive-dir archive --target-dir output --url-filter literotica.com
+     cargo run -- --archive-dir archive --target-dir output --url-filter scottlogic.com
      
      # Process only URLs containing /stories/
      cargo run -- --archive-dir archive --target-dir output --url-filter "/stories/"
@@ -305,6 +305,47 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - When not specified, processes all URLs (backward compatible)
 
 **Test Status**: 32 tests passing total (no new tests needed—feature is integration-level filtering)
+
+2i. ⏭️ **Optional source cleanup after successful rebuild** (PLANNED - Implementation Ready)
+   Quality Gate to apply:
+   - `cargo check -p rebuild_archive` must pass
+   - `cargo test -p rebuild_archive` - all tests pass (with new cleanup tests)
+   - Plan updated and changes committed to git
+
+**Implementation Details**:
+
+2i. **Optional source cleanup after successful rebuild**:
+   - Module: rebuild_archive/src/settings.rs and main.rs (enhancements)
+   - Added `--cleanup` boolean CLI flag (clap-based, default: false)
+   - Added `cleanup: bool` field to Config struct
+   - Cleanup logic applied AFTER successful serialization of each URL
+   - Deletes source files from source archive after confirming write success
+   - **Sequential deletion**: Only delete if serialization succeeded, not before
+   - **Progress tracking**: Logs files deleted with total count at end
+   - **Safety**: Requires explicit flag—no accidental deletion
+   - **Use case**: Complete archive migration (convert old format to new, remove stale files)
+   - Example usage:
+     ```bash
+     # Rebuild and keep original archive
+     cargo run -- --archive-dir archive --target-dir rebuilt
+     
+     # Rebuild and delete source files after successful rebuild
+     cargo run -- --archive-dir archive --target-dir rebuilt --cleanup
+     
+     # Safe test: rebuild single URL without cleanup
+     cargo run -- --archive-dir archive --target-dir rebuilt --url-filter example.com
+     # Then verify output quality before running full migration with --cleanup
+     ```
+   - **Implementation approach**:
+     - Track each URL's source file paths during load phase
+     - After successful serialization of merged snapshots, delete source files
+     - Log deletion progress per URL and domain
+     - Final summary: total files deleted, total files migrated
+     - Safety: Only processes files that were successfully migrated
+     - Recovery: If cleanup fails, source files may already be partially deleted
+       (mitigate by running with `--url-filter` on subset first to validate entire pipeline)
+
+**Test Status**: 32 tests passing (cleanup feature will add unit tests for deletion logic)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
@@ -489,7 +530,7 @@ archive/
 - Created PageReader trait for abstraction over both types
 - All compilation and tests passing
 
-### Phase 2 Release (Rebuild Tool) - COMPLETE (2026-04-01)
+### Phase 2 Release (Rebuild Tool) - CORE COMPLETE, OPTIONAL CLEANUP PLANNED (2026-04-01)
 - ✓ Phase 2a: ArchiveReader struct for reading hash-sharded archive (COMPLETE)
 - ✓ Phase 2b: URL normalization (remove pagination params) (COMPLETE)
 - ✓ Phase 2c: In-memory aggregation (HashMap by domain+normalized_url) (COMPLETE)
@@ -498,8 +539,9 @@ archive/
 - ✓ Phase 2f: Memory optimization (per-URL deferred loading) (COMPLETE)
 - ✓ Phase 2g: Archive discovery and distribution statistics (COMPLETE)
 - ✓ Phase 2h: Optional URL filtering for selective processing (COMPLETE)
-- **One-time offline tool for archive migration - ALL FEATURES IMPLEMENTED**
-- **32 tests passing** (3 archive_reader + 8 url_utils + 6 aggregator + 6 merger + 6 serializer + 1 settings + others)
+- ⏭️ Phase 2i: Optional source cleanup after successful rebuild (PLANNED)
+- **Core offline tool for archive migration - FEATURES 2a-2h COMPLETE**
+- **32 tests passing** (core features); cleanup tests will be added with Phase 2i
 
 ### Phase 3+ (Workspace Migration - Sequential) - NOT STARTED
 - ~~Create `PageReader` adapter trait (Phase 3a)~~ — **trait already created in Phase 1.5** ✓

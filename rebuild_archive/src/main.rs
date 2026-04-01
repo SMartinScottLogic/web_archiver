@@ -152,16 +152,17 @@ fn main() -> Result<()> {
 
             // Apply URL filter if configured
             if let Some(ref filter) = config.url_filter
-                && !first_page_url.contains(filter) {
-                    info!(
-                        "[{}/{}] Skipping URL {} (does not match filter '{}')",
-                        url_index + 1,
-                        urls_in_domain,
-                        first_page_url,
-                        filter
-                    );
-                    continue;
-                }
+                && !first_page_url.contains(filter)
+            {
+                info!(
+                    "[{}/{}] Skipping URL {} (does not match filter '{}')",
+                    url_index + 1,
+                    urls_in_domain,
+                    first_page_url,
+                    filter
+                );
+                continue;
+            }
 
             info!(
                 "[{}/{}] Domain {} URL {}/{}: {} pages",
@@ -223,7 +224,11 @@ fn main() -> Result<()> {
             }
 
             // Serialize this URL and free memory immediately
-            let url_files_written = serializer.serialize_all(&url_merged_snapshots_by_key)?;
+            let url_files_written = if config.update {
+                serializer.serialize_all(&url_merged_snapshots_by_key)?
+            } else {
+                url_merged_snapshots_by_key.len()
+            };
             global_files_written += url_files_written;
 
             // Memory freed: aggregator, merged_snapshots, url_page_infos dropped
