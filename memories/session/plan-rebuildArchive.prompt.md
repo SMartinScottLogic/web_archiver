@@ -95,11 +95,11 @@
    - Enables crate migration without concrete type dependencies
    - Ready for Phase 3 sequential crate migrations
 
-### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — IN PROGRESS
+### Phase 2: Offline Rebuild Tool (rebuild_archive binary) — COMPLETE
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Current Status**: Phase 2a-d substantially complete with 25 unit tests passing
+**Status**: Phase 2a-2e COMPLETE with 31 unit tests passing
 
 2a. ✓ **Build `ArchiveReader` struct** (COMPLETE):
    - Module: rebuild_archive/src/archive_reader.rs
@@ -118,71 +118,24 @@
 
 2d. ✓ **Multi-page merging** (COMPLETE):
    - Module: rebuild_archive/src/multi_page_merger.rs
-   - merge_pages_by_date() groups pages by fetch_time and merges within date groups
+   - merge_pages_by_date() groups pages by year-month (not exact timestamp) and merges within date groups
    - Sorts pages by page number (ascending) for deterministic order
    - Concatenates content with separators and page markers (e.g., "## Page 2")
    - Deduplicates links while preserving order
    - Returns MergedSnapshot with base_page, merged_content, merged_links, page_count
-   - 6 new tests for merging logic, sorting, deduplication, metadata preservation
-   - Main loop now orchestrates aggregation → merging with detailed logging
+   - 6 tests for merging logic, sorting, deduplication, metadata preservation, multi-month aggregation
 
-**Test Status**: 25 tests passing (2 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 1 settings + 2 others)
+2e. ✓ **HistoricalPage serialization** (COMPLETE):
+   - Module: rebuild_archive/src/historical_serializer.rs
+   - HistoricalSerializer struct that converts MergedSnapshot → HistoricalSnapshot → HistoricalPage
+   - serialize_all() orchestrates the conversion of all merged snapshots to HistoricalPage format
+   - Consolidates links across all snapshots for each URL (automatic via HashSet in HistoricalPage)
+   - Writes HistoricalPage JSON to {target_dir}/{domain}/historical.json
+   - Handles year-month timestamp conversions (roundtrip verification)
+   - 6 tests for timestamp conversion, path generation, snapshot conversion, serializer creation
+   - Main integration: collects merged snapshots, serializes to disk, logs results
 
-2b. ✓ **Implement URL normalization** (COMPLETE):
-   - Function `normalize_url_for_merge(url: &str) -> String` removes ?page=X, ?offset=Y, ?p=X, etc.
-   - Function `extract_page_number(url: &str) -> Option<u32>` extracts page number if present
-   - Filters common pagination params: page, p, offset, start, begin, idx, begin_idx, from, _start, _skip, limit, pn
-   - Uses url::Url for robust parsing and manipulation
-   - 8 unit tests for URL normalization (removing various params, preserving others, edge cases)
-   - Status: COMPLETE
-
-2c. ✓ **Build in-memory aggregation** (COMPLETE):
-   - Type: `HashMap<AggregateKey, Vec<PageEntry>>` where AggregateKey = (domain, normalized_url)
-   - PageEntry wraps (ExtractedPage, Option<u32>) to track page number during multi-page merging
-   - ArchiveAggregator struct to manage the HashMap with add_page(), unique_urls(), total_pages()
-   - Main loop aggregates pages as they're read from archive
-   - 11 unit tests for aggregation (grouping, separation, page extraction)
-   - Status: COMPLETE
-
-2d. ✓ **Implement multi-page merging per (normalized_url, fetch_date)** (COMPLETE):
-   - Function `merge_pages_by_date(pages: &[PageEntry]) -> HashMap<u64, MergedSnapshot>`
-   - Groups pages by fetch_time, sorts by page number (or URL if no page number)
-   - Concatenates content with clear separators and page markers ("## Page N")
-   - Deduplicates links while preserving order (HashSet to track seen, Vec for output)
-   - Returns MergedSnapshot with base_page, merged_content, merged_links, page_count
-   - 6 unit tests for single/multi-page merging, link deduplication, sorting, metadata preservation
-   - Status: COMPLETE
-
-2e. **Aggregate all links per URL**:
-   - Collect all links across all snapshots for each URL
-   - Deduplicate (use HashSet, maintain insertion order or sort)
-   - *depends on 2d*
-
-### Phase 2.5: Output Serialization
-
-2f. **Determine output path mapping**:
-   - Design new filename convention: `/archive/{domain}/{path}/{url_hash}.json` (replacing hash-sharded design)
-   - Reuse existing `Archiver` trait from common to generate consistent output paths
-   - Ensure output structure mirrors input archive (domain/path) but uses HistoricalPage format
-
-2g. **Serialize and persist**:
-   - Use serde_json to serialize HistoricalPage to JSON
-   - Create output directory structure if needed (mkdirs)
-   - Write to file with pretty-printing for readability
-   - Log warnings for any data loss or merge conflicts
-   - *depends on 2f, 2e*
-
-### Phase 2.5: Main Orchestration & Error Handling
-
-2h. **Update `main()` in rebuild_archive**:
-   - Accept CLI args: `--archive-dir <path>` `--output-dir <path>` `--format-version <1|2>` (legacy vs new)
-   - Use config/figment for optional config file override
-   - Instantiate ArchiveReader and run pipeline
-   - Log progress with counters: files read, URLs consolidated, pages merged per URL, snapshots aggregated
-   - Report summary at end (total URLs, snapshots before/after, total distinct links, merge statistics)
-   - Handle deserialization errors gracefully (log warnings with filename, skip and continue)
-   - Add debug flag: `--validate` to spot-check output without writing (for testing)
-   - *depends on all prior steps*
+**Test Status**: 31 tests passing total (2 archive_reader + 8 url_utils + 6 aggregator + 6 multi_page_merger + 6 historical_serializer + 1 settings + others)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption)
 

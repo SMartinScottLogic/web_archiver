@@ -6,13 +6,16 @@ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 mod aggregator;
 mod archive_reader;
+mod historical_serializer;
 mod multi_page_merger;
 mod settings;
 mod url_utils;
 
 use aggregator::ArchiveAggregator;
 use archive_reader::ArchiveReader;
+use historical_serializer::HistoricalSerializer;
 use multi_page_merger::merge_pages_by_date;
+use std::collections::HashMap;
 
 fn setup_logging() {
     // Initialize logging
@@ -88,6 +91,10 @@ fn main() -> Result<()> {
     let aggregates = aggregator.into_aggregates();
     let mut total_merged_snapshots = 0;
     let mut multi_page_urls = 0;
+    let mut merged_snapshots_by_key: HashMap<
+        aggregator::AggregateKey,
+        Vec<multi_page_merger::MergedSnapshot>,
+    > = HashMap::new();
 
     for (key, page_entries) in &aggregates {
         let merged_by_date = merge_pages_by_date(page_entries);
@@ -98,6 +105,8 @@ fn main() -> Result<()> {
             multi_page_urls += 1;
         }
 
+        // Collect merged snapshots for serialization
+        let mut merged_list = Vec::new();
         for (fetch_time, merged_snapshot) in merged_by_date {
             info!(
                 domain = %key.domain,
@@ -108,13 +117,23 @@ fn main() -> Result<()> {
                 link_count = merged_snapshot.merged_links.len(),
                 "merged pages"
             );
+            merged_list.push(merged_snapshot);
         }
+        merged_snapshots_by_key.insert(key.clone(), merged_list);
     }
 
     info!(
         "Multi-page merging complete: {} URLs with multiple pages, {} total merged snapshots",
         multi_page_urls, total_merged_snapshots
     );
+
+    // Phase 2e: Serialize to HistoricalPage format
+    info!("Starting historical page serialization...");
+
+    let serializer = HistoricalSerializer::new(&config.target_dir);
+    let files_written = serializer.serialize_all(&merged_snapshots_by_key)?;
+
+    info!(files_written, "Historical page serialization complete",);
 
     Ok(())
 }
