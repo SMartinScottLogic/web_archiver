@@ -9,7 +9,7 @@
 
 ## Design Decisions
 - **Output structure**: New JSON format `HistoricalPage` with `{url, historical_snapshots: [...], all_links: [...]}` preserving all original ExtractedPage fields within snapshots. **This replaces ExtractedPage as the canonical archive unit.**
-- **Archive format**: Moving from hash-sharded single-snapshot files to consolidated-by-URL files. New format: `archive/{domain}/{path}/{url_hash}.json` (not `{hash}___{date}.json`).
+- **Archive format**: Moving from hash-sharded single-snapshot files to consolidated-by-URL files. New format: `archive/{domain}/{url_filename}.json` (not `{hash}___{date}.json`).
 - **Multi-page merging**: Combine all ?page=X URLs into a single snapshot per date, merging content_markdown and combining links (page order preserved in merged markdown)
 - **Link deduplication**: Per-URL across all dates (deduplicate the final `all_links` list)
 - **Compatibility layer**: During migration, support reading both ExtractedPage and HistoricalPage formats. Use feature flags or adapter traits.
@@ -373,32 +373,32 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
 2j. **Fix output path to be per-URL, not per-domain** (COMPLETE):
    - Module: rebuild_archive/src/historical_serializer.rs
    - **Fresh signature**: `generate_output_path(domain, normalized_url)` (was just `domain`)
-   - **New path format**: `{target_dir}/{domain}/{url_hash}.json`
-   - **URL hashing**: blake3 hash from common::url::hash_url() for deterministic filenames
-   - **Deterministic**: Same URL always produces same hash
+   - **New path format**: `{target_dir}/{domain}/{url_filename}.json`
+   - **URL filename generation**: Human-readable approximation from `common::url::url_to_filename()` 
+   - **Deterministic**: Same URL always produces same filename
    - **Collision-proof**: Each URL gets unique file, no overwrites
    - **Example output structure**:
      ```
      rebuilt/
      ├── www.example.com/
-     │   ├── a1b2c3d4e5f6c7d8.json  (blake3 hash of normalized_url)
-     │   ├── f6e5d4c3b2a1f0e9.json
-     │   ├── 1234567890abcdef.json
+     │   ├── example.com-page1.json  (human-readable approximation)
+     │   ├── example.com-page2.json
+     │   ├── example.com-about.json
      │   └── ...
      ├── api.example.com/
-     │   └── x9y8z7w6v5u4t3s2.json
+     │   └── api.example.com-v1-docs.json
      ```
-   - **Dependencies Added**: sha2 crate to workspace and rebuild_archive
+   - **Dependencies Added**: New `url_to_filename()` function in common::url
    - **Tests Added**:
-     - `test_output_path_generation()` - verifies unique paths use hashes
+     - `test_output_path_generation()` - verifies unique paths use URL approximations
      - `test_output_path_unique_per_url()` - ensures different URLs get different files  
-     - `test_url_hash_consistency()` - confirms deterministic hashing
+     - `test_url_to_filename()` - validates URL-to-filename conversion
 
 **Impact**: All URLs in all domains now correctly write to unique files. **Zero data loss.**
 
 **Test Status**: 37 tests passing (34 from Phases 2a-2j + 3 new cleanup tests)
 
-**Overall Phase 2 Status**: ALL PHASES COMPLETE (2a-2i and critical fix 2j)
+**Overall Phase 2 Status**: ALL PHASES COMPLETE (2a-2i and critical fix 2j with human-readable filenames)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
@@ -567,7 +567,7 @@ Key Decisions: [any notable design decisions made during implementation]
 - `common/src/lib.rs` — **update** to export rebuild module (Phase 1.5)
 - `common/src/types.rs` — keep ExtractedPage for now (Phase 3 only for removal)
 - `common/src/archiver.rs` — reference for output path generation, may need new variant for HistoricalPage paths
-- `common/src/url.rs` — use `canonicalize_url()` and `hash_url()` for URL normalization
+- `common/src/url.rs` — use `canonicalize_url()` and `url_to_filename()` for URL normalization
 - `.github/copilot-instructions.md` — **update** to document Phase 0 decisions once made
 
 ### Current Archive Structure

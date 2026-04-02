@@ -3359,6 +3359,7 @@ dependencies = [
  "csv",
  "figment",
  "indicatif 0.18.4",
+ "itertools",
  "serde",
  "serde_json",
  "tempfile",

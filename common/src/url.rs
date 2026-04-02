@@ -122,6 +122,37 @@ pub fn hash_url(url: &str) -> String {
     blake3::hash(url.as_bytes()).to_hex().to_string()
 }
 
+/// Convert a URL to a filesystem-safe filename that approximates the URL.
+/// Removes protocol, replaces unsafe characters with hyphens, limits length.
+pub fn url_to_filename(url: &str) -> String {
+    // Remove protocol
+    let url = url.strip_prefix("https://").unwrap_or(url);
+    let url = url.strip_prefix("http://").unwrap_or(url);
+
+    // Replace unsafe characters with hyphens
+    let mut filename = String::with_capacity(200);
+    for c in url.chars() {
+        if filename.len() >= 200 {
+            break;
+        }
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+            filename.push(c);
+        } else {
+            filename.push('-');
+        }
+    }
+
+    // Remove leading/trailing hyphens
+    let filename = filename.trim_matches('-');
+
+    // Ensure not empty
+    if filename.is_empty() {
+        "index".to_string()
+    } else {
+        filename.to_string()
+    }
+}
+
 /// Extract domain from URL.
 ///
 /// Example:
@@ -248,5 +279,23 @@ mod tests {
     fn test_hash_url_stable() {
         let url = "https://foo.com";
         assert_eq!(hash_url(url), hash_url(url));
+    }
+
+    #[test]
+    fn test_url_to_filename() {
+        assert_eq!(
+            url_to_filename("https://example.com/page"),
+            "example.com-page"
+        );
+        assert_eq!(
+            url_to_filename("http://test.com/path/to/file.html"),
+            "test.com-path-to-file.html"
+        );
+        assert_eq!(
+            url_to_filename("https://example.com/path?query=value#fragment"),
+            "example.com-path-query-value-fragment"
+        );
+        assert_eq!(url_to_filename("https://example.com/"), "example.com");
+        assert_eq!(url_to_filename(""), "index");
     }
 }

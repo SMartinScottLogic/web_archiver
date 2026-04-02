@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use common::historical::{HistoricalPage, HistoricalSnapshot};
-use common::url::hash_url;
+use common::url::{hash_url, url_to_filename};
 
 use crate::aggregator::AggregateKey;
 use crate::multi_page_merger::MergedSnapshot;
@@ -153,11 +153,13 @@ impl HistoricalSerializer {
     }
 
     /// Generate output path for a historical page based on domain and URL.
-    /// Pattern: {target_dir}/{domain}/{url_hash}.json
-    /// Each URL gets a unique file (hashed from normalized_url).
+    /// Pattern: {target_dir}/{domain}/{url_filename}.json
+    /// Each URL gets a unique file based on the URL itself (filesystem-safe approximation).
     fn generate_output_path(&self, domain: &str, normalized_url: &str) -> PathBuf {
-        let url_hash = hash_url(normalized_url);
-        self.target_dir.join(domain).join(format!("{}.json", url_hash))
+        let url_filename = url_to_filename(normalized_url);
+        self.target_dir
+            .join(domain)
+            .join(format!("{}.json", url_filename))
     }
 }
 
@@ -199,10 +201,10 @@ mod tests {
     fn test_output_path_generation() {
         let serializer = HistoricalSerializer::new("/tmp/test");
         let path = serializer.generate_output_path("example.com", "https://example.com/page1");
-        // Path should be: /tmp/test/example.com/{url_hash}.json
+        // Path should be: /tmp/test/example.com/{url_filename}.json
         assert!(path.to_string_lossy().contains("example.com"));
         assert!(path.to_string_lossy().ends_with(".json"));
-        assert!(!path.to_string_lossy().contains("page1")); // URL should be hashed, not literal
+        assert!(path.to_string_lossy().contains("example.com-page1")); // URL should be approximated in filename
     }
 
     #[test]
@@ -210,7 +212,7 @@ mod tests {
         let serializer = HistoricalSerializer::new("/tmp/test");
         let path1 = serializer.generate_output_path("example.com", "https://example.com/page1");
         let path2 = serializer.generate_output_path("example.com", "https://example.com/page2");
-        
+
         // Different URLs should generate different paths
         assert_ne!(path1, path2);
         // But both should be in same domain directory
@@ -225,7 +227,7 @@ mod tests {
         let hash1 = hash_url(url);
         let hash2 = hash_url(url);
         assert_eq!(hash1, hash2);
-        
+
         // Different URLs should produce different hashes
         let hash3 = hash_url("https://example.com/test/page2");
         assert_ne!(hash1, hash3);

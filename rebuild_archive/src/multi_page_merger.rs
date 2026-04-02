@@ -90,8 +90,8 @@ pub fn merge_pages_by_date(pages: &[PageEntry]) -> HashMap<(u32, u32), MergedSna
         entries.sort_by(|a, b| {
             match (a.page_number, b.page_number) {
                 (Some(pa), Some(pb)) => pa.cmp(&pb),
-                (Some(_), None) => std::cmp::Ordering::Less, // Pages with numbers come first
-                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Greater, // Pages with numbers come last
+                (None, Some(_)) => std::cmp::Ordering::Less,
                 (None, None) => a.page.task.url.cmp(&b.page.task.url),
             }
         });
@@ -132,7 +132,6 @@ pub fn merge_pages_by_date(pages: &[PageEntry]) -> HashMap<(u32, u32), MergedSna
 
         results.insert(year_month, merged);
     }
-
     results
 }
 

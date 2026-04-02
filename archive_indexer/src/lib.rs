@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// Generate a CSV index of the archive, supporting both ExtractedPage and HistoricalPage formats
 /// Each row: json_file_path, url
-/// 
+///
 /// This function is format-agnostic and can read either old ExtractedPage format
 /// or new HistoricalPage format from the archive.
 pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressBar) -> Result<()> {
@@ -31,18 +31,19 @@ pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressB
 /// - HistoricalPage: url (at root level)
 fn extract_url_from_json(value: &Value) -> Option<String> {
     // Try ExtractedPage format first (nested in task.url)
-    if let Some(url) = value.get("task")
+    if let Some(url) = value
+        .get("task")
         .and_then(|t| t.get("url"))
-        .and_then(|u| u.as_str()) 
+        .and_then(|u| u.as_str())
     {
         return Some(url.to_string());
     }
-    
+
     // Try HistoricalPage format (url at root level)
     if let Some(url) = value.get("url").and_then(|u| u.as_str()) {
         return Some(url.to_string());
     }
-    
+
     None
 }
 
@@ -94,7 +95,10 @@ mod tests {
                 discovered_from: None,
             },
             content_markdown: Some("content".to_string()),
-            links: vec!["https://example.com/link1".to_string(), "https://example.com/link2".to_string()],
+            links: vec![
+                "https://example.com/link1".to_string(),
+                "https://example.com/link2".to_string(),
+            ],
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -108,7 +112,7 @@ mod tests {
     fn create_test_historical_page(url: &str) -> HistoricalPage {
         let base_page = create_test_extracted_page(url);
         let snapshot = HistoricalSnapshot::from_extracted_page(base_page);
-        
+
         let mut page = HistoricalPage::new(url.to_string());
         page.add_snapshot(snapshot);
         page
@@ -119,9 +123,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let archive_root = dir.path().join("archive");
         fs::create_dir_all(&archive_root).unwrap();
-        
+
         let page = create_test_extracted_page("https://example.com/test");
-        
+
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();
         let json_path = archive_root.join(inner).join("test.json");
@@ -152,9 +156,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let archive_root = dir.path().join("archive");
         fs::create_dir_all(&archive_root).unwrap();
-        
+
         let page = create_test_historical_page("https://example.com/historical-test");
-        
+
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();
         let json_path = archive_root.join(inner).join("test.json");
@@ -208,17 +212,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let archive_root = dir.path().join("archive");
         fs::create_dir_all(&archive_root).unwrap();
-        
+
         // Create directory with mixed formats
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();
-        
+
         // Add an ExtractedPage
         let extracted = create_test_extracted_page("https://example.com/extracted");
         let extracted_path = archive_root.join(inner).join("extracted.json");
         let file = File::create(&extracted_path).unwrap();
         serde_json::to_writer_pretty(file, &extracted).unwrap();
-        
+
         // Add a HistoricalPage
         let historical = create_test_historical_page("https://example.com/historical");
         let historical_path = archive_root.join(inner).join("historical.json");
