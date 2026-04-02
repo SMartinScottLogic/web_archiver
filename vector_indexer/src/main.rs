@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     // ---------------------------
     let client = Qdrant::from_url("http://localhost:6334").build()?;
 
-    let collection = "literotica";
+    let collection = "articles";
     if !client.collection_exists(collection).await? {
         client
             .create_collection(

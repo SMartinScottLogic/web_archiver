@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     // ---------------------------
     let client = Qdrant::from_url("http://localhost:6334").build()?;
 
-    let collection = "literotica";
+    let collection = "articles";
 
     // ---------------------------
     // Embed query
