@@ -52,9 +52,10 @@ impl HistoricalPage {
     /// Add a snapshot to the historical record, maintaining sort order by fetch_time
     /// and automatically updating the deduplicated links set
     pub fn add_snapshot(&mut self, snapshot: HistoricalSnapshot) {
-        // Add snapshot's links to the set (deduplication is automatic)
+        // Add snapshot's links to the set (deduplication is automatic), with paging stripped
         for link in &snapshot.links {
-            self.all_links.insert(link.clone());
+            let normalized_link = crate::url::remove_pagination_params(link);
+            self.all_links.insert(normalized_link);
         }
 
         // Add snapshot, maintaining temporal order
@@ -69,7 +70,8 @@ impl HistoricalPage {
         self.all_links.clear();
         for snapshot in &self.historical_snapshots {
             for link in &snapshot.links {
-                self.all_links.insert(link.clone());
+                let normalized_link = crate::url::remove_pagination_params(link);
+                self.all_links.insert(normalized_link);
             }
         }
     }
@@ -232,6 +234,37 @@ mod tests {
                 .fetch_time,
             2000
         );
+    }
+
+    #[test]
+    fn test_add_snapshot_strips_pagination_from_links() {
+        let mut page = HistoricalPage::new("https://example.com".to_string());
+
+        let snapshot = HistoricalSnapshot {
+            task: FetchTask {
+                url_id: 1,
+                url: "https://example.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            content_markdown: None,
+            links: vec![
+                "https://example.com/article?page=2".to_string(),
+                "https://example.com/article?page=3".to_string(),
+            ],
+            metadata: Some(PageMetadata {
+                status_code: 200,
+                content_type: None,
+                fetch_time: 1000,
+                title: None,
+                document_metadata: None,
+            }),
+        };
+
+        page.add_snapshot(snapshot);
+        assert_eq!(page.all_links.len(), 1);
+        assert!(page.all_links.contains("https://example.com/article"));
     }
 
     #[test]

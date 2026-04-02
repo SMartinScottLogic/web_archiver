@@ -104,6 +104,82 @@ pub fn canonicalize_url(input: &str) -> Option<String> {
     Some(normalized)
 }
 
+/// Remove pagination-related query parameters from a URL.
+/// Returns the URL with pagination parameters stripped, or original if invalid.
+pub fn remove_pagination_params(input: &str) -> String {
+    let mut parsed = match Url::parse(input) {
+        Ok(url) => url,
+        Err(_) => return input.to_string(),
+    };
+
+    let pagination_params = [
+        "page",
+        "p",
+        "offset",
+        "start",
+        "begin",
+        "begin_idx",
+        "idx",
+        "from",
+        "_start",
+        "_skip",
+        "limit",
+        "pn",
+    ];
+
+    let filtered: Vec<(String, String)> = parsed
+        .query_pairs()
+        .into_owned()
+        .filter(|(k, _)| !pagination_params.contains(&k.as_str()))
+        .collect();
+
+    let mut sorted = filtered;
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let encoded = sorted
+        .iter()
+        .fold(
+            form_urlencoded::Serializer::new(String::new()),
+            |mut acc, (k, v)| {
+                if v.is_empty() {
+                    acc.append_key_only(k);
+                } else {
+                    acc.append_pair(k, v);
+                }
+                acc
+            },
+        )
+        .finish();
+
+    if encoded.is_empty() {
+        parsed.set_query(None);
+    } else {
+        parsed.set_query(Some(&encoded));
+    }
+
+    // Reconstruct URL while preserving unslashed host for root URLs
+    let mut output = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+
+    if let Some(port) = parsed.port() {
+        if !is_default_port(parsed.scheme(), port) {
+            output.push(':');
+            output.push_str(&port.to_string());
+        }
+    }
+
+    let path = parsed.path();
+    if !path.is_empty() && path != "/" {
+        output.push_str(path);
+    }
+
+    if let Some(q) = parsed.query() {
+        output.push('?');
+        output.push_str(q);
+    }
+
+    output
+}
+
 fn is_default_port(scheme: &str, port: u16) -> bool {
     match scheme {
         "http" => port == 80,
