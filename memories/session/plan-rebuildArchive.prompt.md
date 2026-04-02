@@ -471,10 +471,11 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - Test: crawl→store→index→search end-to-end
    - Validation gate: full pipeline works with new format
 
-3f. **Final: Archive Cleanup** — NOT STARTED
+3f. **Final: Archive Cleanup & Code Coverage** — NOT STARTED
    Quality Gate to apply:
    - Full workspace `cargo check` passes
    - All workspace tests pass
+   - Code coverage: Each workspace crate achieving ≥80% line coverage
    - Documentation updated
    - Final git commit with migration completion notice
    
@@ -483,6 +484,15 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - **Keep PageReader trait** — it's foundational and enables clean abstraction even after ExtractedPage is gone
    - Remove old archive files (migrated to new format)
    - Update documentation to reflect HistoricalPage as canonical format
+   - **Code Coverage Enhancement**:
+     - Run `cargo tarpaulin --workspace --out Xml` to establish baseline
+     - For each workspace crate: analyze coverage gaps and add tests
+     - Focus areas: error handling, edge cases, boundary conditions
+     - Goal: Each crate ≥80% line coverage before Phase 3f completion
+     - Iteratively add tests and verify coverage improvement
+     - Document any intentionally untested code paths (e.g., filesystem I/O in sandboxed tests)
+     - Run final coverage report: `cargo tarpaulin --workspace --out Xml`
+     - Verify all crates meet ≥80% coverage threshold in XML report
 
 ## Quality Gate Checklist Template
 
