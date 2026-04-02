@@ -15,6 +15,8 @@ pub struct Config {
     pub update: bool,
     /// Optional filter: only write files for URLs containing this substring
     pub url_filter: Option<String>,
+    /// Delete source files after successful rebuild
+    pub cleanup: bool,
 }
 
 #[derive(Parser, Debug, Serialize)]
@@ -40,6 +42,10 @@ struct Args {
     #[arg(long, help_heading = "Rebuild")]
     #[serde(skip_serializing_if = "Option::is_none")]
     url_filter: Option<String>,
+
+    /// Delete source files after successful rebuild
+    #[arg(long, help_heading = "Rebuild")]
+    cleanup: bool,
 }
 
 impl Default for Config {
@@ -50,6 +56,7 @@ impl Default for Config {
             target_dir: "rebuilt_archive".to_string(),
             update: false,
             url_filter: None,
+            cleanup: false,
         }
     }
 }
@@ -82,5 +89,23 @@ mod tests {
         assert_eq!(config.hosts[0].name, "Foo");
         assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_config_default_cleanup_is_false() {
+        let config = Config::default();
+        assert!(!config.cleanup);
+    }
+
+    #[test]
+    fn test_config_default_url_filter_is_none() {
+        let config = Config::default();
+        assert_eq!(config.url_filter, None);
+    }
+
+    #[test]
+    fn test_config_default_update_is_false() {
+        let config = Config::default();
+        assert!(!config.update);
     }
 }

@@ -113,6 +113,7 @@ fn main() -> Result<()> {
     let mut global_multi_page_urls = 0;
     let mut global_merged_snapshots = 0;
     let mut global_files_written = 0;
+    let mut global_files_deleted = 0;
 
     for (domain_index, (domain, page_infos)) in pages_by_domain.iter().enumerate() {
         info!(
@@ -231,6 +232,28 @@ fn main() -> Result<()> {
             };
             global_files_written += url_files_written;
 
+            // Cleanup source files after successful serialization if requested
+            if config.cleanup && config.update {
+                for page_info in url_page_infos {
+                    match std::fs::remove_file(&page_info.path) {
+                        Ok(_) => {
+                            info!(
+                                path = ?page_info.path,
+                                "cleaned up source file"
+                            );
+                            global_files_deleted += 1;
+                        }
+                        Err(error) => {
+                            warn!(
+                                path = ?page_info.path,
+                                error = %error,
+                                "failed to remove source file during cleanup"
+                            );
+                        }
+                    }
+                }
+            }
+
             // Memory freed: aggregator, merged_snapshots, url_page_infos dropped
         }
 
@@ -242,13 +265,15 @@ fn main() -> Result<()> {
 
     info!(
         "Archive processing complete: {} files read, {} failed, {} unique URLs, \
-            {} multi-page URLs, {} total merged snapshots, {} output files written",
+            {} multi-page URLs, {} total merged snapshots, {} output files written, \
+            {} source files deleted",
         global_files_read,
         global_files_failed,
         global_unique_urls,
         global_multi_page_urls,
         global_merged_snapshots,
-        global_files_written
+        global_files_written,
+        global_files_deleted
     );
 
     Ok(())

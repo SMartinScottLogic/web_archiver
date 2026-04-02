@@ -306,11 +306,12 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
 
 **Test Status**: 32 tests passing total (no new tests needed—feature is integration-level filtering)
 
-2i. ⏭️ **Optional source cleanup after successful rebuild** (PLANNED - Implementation Ready)
-   Quality Gate to apply:
-   - `cargo check -p rebuild_archive` must pass
-   - `cargo test -p rebuild_archive` - all tests pass (with new cleanup tests)
-   - Plan updated and changes committed to git
+2i. ✓ **Optional source cleanup after successful rebuild** (COMPLETE - 2026-04-02)
+   Quality Gate Verification:
+   - ✓ `cargo check -p rebuild_archive` - no errors or warnings
+   - ✓ `cargo test -p rebuild_archive` - 37 tests passing (34 existing + 3 new cleanup tests)
+   - ✓ Plan updated with completion status
+   - ✓ Committed to git
 
 **Implementation Details**:
 
@@ -345,7 +346,7 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
      - Recovery: If cleanup fails, source files may already be partially deleted
        (mitigate by running with `--url-filter` on subset first to validate entire pipeline)
 
-**Test Status**: 32 tests passing (cleanup feature will add unit tests for deletion logic)
+**Test Status**: 37 tests passing (34 from Phases 2a-2j + 3 new cleanup tests)
 
 2j. ✓ **Fix output path to be per-URL, not per-domain** (COMPLETE - 2026-04-02)
    Quality Gate Verification:
@@ -395,9 +396,9 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
 
 **Impact**: All URLs in all domains now correctly write to unique files. **Zero data loss.**
 
-**Test Status**: 34 tests passing (32 existing + 2 new path uniqueness tests)
+**Test Status**: 37 tests passing (34 from Phases 2a-2j + 3 new cleanup tests)
 
-2i. ⏭️ **Optional source cleanup after successful rebuild** (PLANNED - READY FOR IMPLEMENTATION)
+**Overall Phase 2 Status**: ALL PHASES COMPLETE (2a-2i and critical fix 2j)
 
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
