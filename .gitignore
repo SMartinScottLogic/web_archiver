@@ -4,6 +4,7 @@
 # App specific
 /weeklore_reports
 /archive
+/rebuilt_archive
 /test_archive
 /config.yaml
 /archive_index.csv

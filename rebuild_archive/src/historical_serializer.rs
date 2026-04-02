@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use common::historical::{HistoricalPage, HistoricalSnapshot};
-use common::url::{hash_url, url_to_filename};
+use common::url::url_to_filename;
 
 use crate::aggregator::AggregateKey;
 use crate::multi_page_merger::MergedSnapshot;
@@ -142,7 +142,7 @@ impl HistoricalSerializer {
             page.consolidate_links();
 
             // Generate output path: target_dir/{domain}/{url_hash}.json
-            let output_path = self.generate_output_path(&key.domain, &key.normalized_url);
+            let output_path = self.generate_output_path(&key.normalized_url);
 
             // Serialize to disk
             page.write_page(&output_path)?;
@@ -155,18 +155,16 @@ impl HistoricalSerializer {
     /// Generate output path for a historical page based on domain and URL.
     /// Pattern: {target_dir}/{domain}/{url_filename}.json
     /// Each URL gets a unique file based on the URL itself (filesystem-safe approximation).
-    fn generate_output_path(&self, domain: &str, normalized_url: &str) -> PathBuf {
+    fn generate_output_path(&self, normalized_url: &str) -> PathBuf {
         let url_filename = url_to_filename(normalized_url);
-        self.target_dir
-            .join(domain)
-            .join(format!("{}.json", url_filename))
+        self.target_dir.join(format!("{}.json", url_filename))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::types::FetchTask;
+    use common::{types::FetchTask, url::hash_url};
 
     #[test]
     fn test_year_month_to_timestamp_epoch() {
@@ -200,18 +198,18 @@ mod tests {
     #[test]
     fn test_output_path_generation() {
         let serializer = HistoricalSerializer::new("/tmp/test");
-        let path = serializer.generate_output_path("example.com", "https://example.com/page1");
+        let path = serializer.generate_output_path("https://example.com/page1");
         // Path should be: /tmp/test/example.com/{url_filename}.json
         assert!(path.to_string_lossy().contains("example.com"));
         assert!(path.to_string_lossy().ends_with(".json"));
-        assert!(path.to_string_lossy().contains("example.com-page1")); // URL should be approximated in filename
+        assert!(path.to_string_lossy().contains("example.com/page1")); // URL should be approximated in filename
     }
 
     #[test]
     fn test_output_path_unique_per_url() {
         let serializer = HistoricalSerializer::new("/tmp/test");
-        let path1 = serializer.generate_output_path("example.com", "https://example.com/page1");
-        let path2 = serializer.generate_output_path("example.com", "https://example.com/page2");
+        let path1 = serializer.generate_output_path("https://example.com/page1");
+        let path2 = serializer.generate_output_path("https://example.com/page2");
 
         // Different URLs should generate different paths
         assert_ne!(path1, path2);

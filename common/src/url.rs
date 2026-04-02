@@ -160,11 +160,11 @@ pub fn remove_pagination_params(input: &str) -> String {
     // Reconstruct URL while preserving unslashed host for root URLs
     let mut output = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
-    if let Some(port) = parsed.port() {
-        if !is_default_port(parsed.scheme(), port) {
-            output.push(':');
-            output.push_str(&port.to_string());
-        }
+    if let Some(port) = parsed.port()
+        && !is_default_port(parsed.scheme(), port)
+    {
+        output.push(':');
+        output.push_str(&port.to_string());
     }
 
     let path = parsed.path();
@@ -213,6 +213,8 @@ pub fn url_to_filename(url: &str) -> String {
         }
         if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
             filename.push(c);
+        } else if c == '/' || c == '\\' {
+            filename.push(std::path::MAIN_SEPARATOR);
         } else {
             filename.push('-');
         }
@@ -361,17 +363,17 @@ mod tests {
     fn test_url_to_filename() {
         assert_eq!(
             url_to_filename("https://example.com/page"),
-            "example.com-page"
+            "example.com/page"
         );
         assert_eq!(
             url_to_filename("http://test.com/path/to/file.html"),
-            "test.com-path-to-file.html"
+            "test.com/path/to/file.html"
         );
         assert_eq!(
             url_to_filename("https://example.com/path?query=value#fragment"),
-            "example.com-path-query-value-fragment"
+            "example.com/path-query-value-fragment"
         );
-        assert_eq!(url_to_filename("https://example.com/"), "example.com");
+        assert_eq!(url_to_filename("https://example.com/"), "example.com/");
         assert_eq!(url_to_filename(""), "index");
     }
 }

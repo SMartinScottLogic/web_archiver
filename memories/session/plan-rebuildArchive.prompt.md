@@ -253,11 +253,11 @@ Quality Gate Verification:
        Largest domain: 3,118,711 files (96.7% of total)
        
      Top domains by size:
-       1. www.example.com: 3,118,711 files (96.7%)
-       2. api.example.com: 53,847 files (1.7%)
+       1. example.com: 3,118,711 files (96.7%)
+       2. example.com: 53,847 files (1.7%)
        ...
        
-     NOTE: www.example.com contains 96.7% of all files. Per-URL streaming 
+     NOTE: example.com contains 96.7% of all files. Per-URL streaming 
      is essential to avoid memory exhaustion...
      ```
    - **Critical insight**: Real-world archive may have 96.7% of files concentrated in a single domain
@@ -380,13 +380,11 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - **Example output structure**:
      ```
      rebuilt/
-     ├── www.example.com/
+     ├── example.com/
      │   ├── example.com-page1.json  (human-readable approximation)
      │   ├── example.com-page2.json
      │   ├── example.com-about.json
      │   └── ...
-     ├── api.example.com/
-     │   └── api.example.com-v1-docs.json
      ```
    - **Dependencies Added**: New `url_to_filename()` function in common::url
    - **Tests Added**:

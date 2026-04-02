@@ -38,13 +38,13 @@ struct Args {
     #[arg(short, long, help_heading = "Rebuild")]
     update: bool,
 
-    /// Optional filter: only write files for URLs containing this substring
-    #[arg(long, help_heading = "Rebuild")]
+    /// filter: only write files for URLs containing this substring
+    #[arg(short('f'), long, help_heading = "Rebuild")]
     #[serde(skip_serializing_if = "Option::is_none")]
     url_filter: Option<String>,
 
     /// Delete source files after successful rebuild
-    #[arg(long, help_heading = "Rebuild")]
+    #[arg(short, long, help_heading = "Rebuild")]
     cleanup: bool,
 }
 
