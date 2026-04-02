@@ -131,7 +131,7 @@ Quality Gate Verification:
 
 **Objective**: Walk existing archive, consolidate by URL, merge multi-page snapshots, output HistoricalPage format
 
-**Status**: Phase 2a-2h COMPLETE with 32 unit tests passing; Phase 2i (optional cleanup) PLANNED
+**Status**: Phase 2a-2h COMPLETE with 32 unit tests; Phase 2j (CRITICAL FIX: per-URL output paths) BLOCKING; Phase 2i (optional cleanup) PLANNED AFTER 2j
 
 2a. ✓ **Build `ArchiveReader` struct** (COMPLETE - 2026-03-29)
    Quality Gate:
@@ -347,6 +347,53 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
 
 **Test Status**: 32 tests passing (cleanup feature will add unit tests for deletion logic)
 
+2j. ⏭️ **Fix output path to be per-URL, not per-domain** (CRITICAL FIX NEEDED)
+   Quality Gate to apply:
+   - `cargo check -p rebuild_archive` must pass
+   - `cargo test -p rebuild_archive` - all tests pass (with new path tests)
+   - Plan updated and changes committed to git
+
+**Critical Issue**:
+   Current implementation in `historical_serializer.rs`:
+   ```rust
+   fn generate_output_path(&self, domain: &str) -> PathBuf {
+       self.target_dir.join(domain).join("historical.json")
+   }
+   ```
+   **Problem**: All URLs in the same domain write to `{target_dir}/{domain}/historical.json`
+   - Multiple URLs per domain overwrite each other
+   - Only the last URL's data survives
+   - Data loss for all but final URL processed in each domain
+   - Critical bug blocking production use
+
+**Implementation Details**:
+
+2j. **Fix output path to be per-URL, not per-domain**:
+   - Module: rebuild_archive/src/historical_serializer.rs (critical fix)
+   - **Changed signature**: `generate_output_path(domain, normalized_url)` instead of just `domain`
+   - **New path pattern**: `{target_dir}/{domain}/{url_hash}.json`
+   - **URL hash**: Use SHA256 or similar hash of normalized_url for deterministic filenames
+   - **Alternative**: Use slug-based naming if hash is too opaque (e.g., sanitize URL chars)
+   - Update `serialize_all()` to pass both domain and normalized_url to generate_output_path
+   - Update method signature and all callsites
+   - Update tests to verify unique paths per URL
+   - **Result**: Each URL gets its own HistoricalPage file, no overwrites
+   - **Benefit**: Preserves all migrated URLs and their complete snapshot history
+   
+   Example output structure:
+   ```
+   rebuilt/
+   ├── www.literotica.com/
+   │   ├── a1b2c3d4e5f6.json  (hash of normalized_url)
+   │   ├── f6e5d4c3b2a1.json
+   │   └── ...
+   ├── forum.literotica.com/
+   │   ├── x9y8z7w6v5u4.json
+   │   └── ...
+   ```
+
+**Test Status**: 32 tests passing (core functionality); Phase 2j will add path uniqueness tests
+
 ### Phase 3: Crate-by-Crate Migration (Workspace Adoption) — NOT STARTED
 
 **Phased Crate Migration (Sequential):**
@@ -530,7 +577,7 @@ archive/
 - Created PageReader trait for abstraction over both types
 - All compilation and tests passing
 
-### Phase 2 Release (Rebuild Tool) - CORE COMPLETE, OPTIONAL CLEANUP PLANNED (2026-04-01)
+### Phase 2 Release (Rebuild Tool) - CORE COMPLETE, CRITICAL FIX + CLEANUP PLANNED (2026-04-01)
 - ✓ Phase 2a: ArchiveReader struct for reading hash-sharded archive (COMPLETE)
 - ✓ Phase 2b: URL normalization (remove pagination params) (COMPLETE)
 - ✓ Phase 2c: In-memory aggregation (HashMap by domain+normalized_url) (COMPLETE)
@@ -539,9 +586,12 @@ archive/
 - ✓ Phase 2f: Memory optimization (per-URL deferred loading) (COMPLETE)
 - ✓ Phase 2g: Archive discovery and distribution statistics (COMPLETE)
 - ✓ Phase 2h: Optional URL filtering for selective processing (COMPLETE)
-- ⏭️ Phase 2i: Optional source cleanup after successful rebuild (PLANNED)
-- **Core offline tool for archive migration - FEATURES 2a-2h COMPLETE**
-- **32 tests passing** (core features); cleanup tests will be added with Phase 2i
+- 🔴 Phase 2j: **CRITICAL FIX** - Output path per-URL, not per-domain (BLOCKING - MUST FIX BEFORE PRODUCTION)
+- ⏭️ Phase 2i: Optional source cleanup after successful rebuild (PLANNED - AFTER 2j)
+- **Core offline tool for archive migration - FEATURES 2a-2h COMPLETE BUT 2j CRITICAL**
+- **32 tests passing** (core features); Phase 2j will add path tests; Phase 2i tests after fix
+
+**BLOCKER NOTICE**: Phase 2j is a critical fix that causes data loss. Current implementation writes all URLs in a domain to the same file, causing overwrites. Must be fixed before using rebuild tool on production archives.
 
 ### Phase 3+ (Workspace Migration - Sequential) - NOT STARTED
 - ~~Create `PageReader` adapter trait (Phase 3a)~~ — **trait already created in Phase 1.5** ✓
