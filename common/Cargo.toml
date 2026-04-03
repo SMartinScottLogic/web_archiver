@@ -16,3 +16,8 @@ html2md = { workspace = true }
 readability = { workspace = true }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
+
+simhash = { workspace = true }
+oxidelta = { workspace = true }
+base64 = { workspace = true }
+zstd = { workspace = true }

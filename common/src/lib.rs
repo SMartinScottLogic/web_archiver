@@ -3,6 +3,7 @@ use mockall::*;
 use std::path::PathBuf;
 
 pub mod balanced_archiver;
+pub mod compressed_string;
 pub mod full_path_archiver;
 pub mod historical;
 pub mod markdown;

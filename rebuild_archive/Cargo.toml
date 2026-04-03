@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
 indicatif = { workspace = true }                    # A progress bar and cli reporting library for Rust

@@ -1,4 +1,4 @@
-use crate::historical::{HistoricalPage, HistoricalSnapshot};
+use crate::historical::{HistoricalContentType, HistoricalPage, HistoricalSnapshot};
 use crate::types::ExtractedPage;
 
 /// A trait for reading page data, abstracting over both ExtractedPage and HistoricalPage.
@@ -7,10 +7,13 @@ pub trait PageReader {
     /// Get the canonical URL for this page
     fn url(&self) -> &str;
 
-    /// Get all historical snapshots for this page
-    /// For ExtractedPage: returns a single-element slice
-    /// For HistoricalPage: returns all snapshots
-    fn snapshots(&self) -> &[HistoricalSnapshot];
+    /// Get current snapshot for this page
+    fn current(&self) -> &Option<HistoricalSnapshot>;
+
+    /// Get historical snapshots (NOT current) for this page
+    /// For ExtractedPage: returns an empty slice
+    /// For HistoricalPage: returns historical snapshots
+    fn snapshots(&mut self) -> &[HistoricalSnapshot];
 
     /// Get all unique links discovered across all snapshots
     /// For ExtractedPage: returns links from the single snapshot
@@ -29,7 +32,11 @@ impl PageReader for ExtractedPage {
         &self.task.url
     }
 
-    fn snapshots(&self) -> &[HistoricalSnapshot] {
+    fn current(&self) -> &Option<HistoricalSnapshot> {
+        todo!("convert ExtractedPage to HistoricalSnapshot?")
+    }
+
+    fn snapshots(&mut self) -> &[HistoricalSnapshot] {
         // For ExtractedPage, we conceptually have a single snapshot
         // but we can't return it without allocating, so return empty
         // Callers should use ExtractedPageExt::as_snapshots() instead
@@ -55,8 +62,12 @@ impl PageReader for HistoricalPage {
         &self.url
     }
 
-    fn snapshots(&self) -> &[HistoricalSnapshot] {
-        &self.historical_snapshots
+    fn current(&self) -> &Option<HistoricalSnapshot> {
+        &self.current
+    }
+
+    fn snapshots(&mut self) -> &[HistoricalSnapshot] {
+        self.historical_snapshots.make_contiguous()
     }
 
     fn all_links(&self) -> Vec<String> {
@@ -67,15 +78,20 @@ impl PageReader for HistoricalPage {
     }
 
     fn fetch_time(&self) -> u64 {
-        self.historical_snapshots
-            .first()
-            .and_then(|s| s.metadata.as_ref().map(|m| m.fetch_time))
-            .unwrap_or(0)
+        if self.historical_snapshots.is_empty() {
+            self.latest_fetch_time()
+        } else {
+            self.historical_snapshots
+                .iter()
+                .next_back()
+                .and_then(|s| s.metadata.as_ref().map(|m| m.fetch_time))
+                .unwrap_or(0)
+        }
     }
 
     fn latest_fetch_time(&self) -> u64 {
-        self.historical_snapshots
-            .last()
+        self.current
+            .as_ref()
             .and_then(|s| s.metadata.as_ref().map(|m| m.fetch_time))
             .unwrap_or(0)
     }
@@ -91,7 +107,10 @@ impl ExtractedPageExt for ExtractedPage {
     fn as_snapshots(&self) -> Vec<HistoricalSnapshot> {
         vec![HistoricalSnapshot {
             task: self.task.clone(),
-            content_markdown: self.content_markdown.clone(),
+            content_markdown: match self.content_markdown.as_ref() {
+                Some(md) => HistoricalContentType::Literal(md.to_owned()),
+                None => HistoricalContentType::None,
+            },
             links: self.links.clone(),
             metadata: self.metadata.clone(),
         }]
@@ -164,7 +183,7 @@ mod tests {
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: Some("Content".to_string()),
+            content_markdown: HistoricalContentType::Literal("Content".to_string()),
             links: vec![
                 "https://link1.com".to_string(),
                 "https://link2.com".to_string(),
@@ -181,7 +200,8 @@ mod tests {
         page.add_snapshot(snapshot);
 
         assert_eq!(page.url(), "https://example.com");
-        assert_eq!(page.snapshots().len(), 1);
+        assert!(page.current.is_some());
+        assert_eq!(page.snapshots().len(), 0);
         assert_eq!(page.all_links().len(), 2);
         assert_eq!(page.fetch_time(), 1000);
         assert_eq!(page.latest_fetch_time(), 1000);
@@ -199,7 +219,7 @@ mod tests {
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: None,
+            content_markdown: HistoricalContentType::Literal("content version 1".to_string()),
             links: vec!["https://link1.com".to_string()],
             metadata: Some(PageMetadata {
                 status_code: 200,
@@ -218,7 +238,7 @@ mod tests {
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: None,
+            content_markdown: HistoricalContentType::Literal("content version 2".to_string()),
             links: vec!["https://link2.com".to_string()],
             metadata: Some(PageMetadata {
                 status_code: 200,
@@ -232,7 +252,8 @@ mod tests {
         page.add_snapshot(snapshot1);
         page.add_snapshot(snapshot2);
 
-        assert_eq!(page.snapshots().len(), 2);
+        assert!(page.current.is_some());
+        assert_eq!(page.snapshots().len(), 1);
         assert_eq!(page.fetch_time(), 1000); // oldest
         assert_eq!(page.latest_fetch_time(), 2000); // newest
         assert_eq!(page.all_links().len(), 2);

@@ -45,3 +45,7 @@ blake3 = "1.8.4"               # the BLAKE3 hash function
 futures-util = "0.3.32"                          # Common utilities and extension traits for the futures-rs library. 
 figment = {version = "0.10.19", features = ["yaml"]}
 indicatif = "0.18.4"                    # A progress bar and cli reporting library for Rust
+simhash = "0.3.0"         # Simhash algorithm for 64-bit locality-sensitive hashing and similarity calculation
+oxidelta = "0.1.4"    # VCDIFF (RFC 3284) delta encoder/decoder — Rust reimplementation of xdelta3
+base64 = "0.22.1"                # encodes and decodes base64 as bytes or utf8
+zstd = "0.13"

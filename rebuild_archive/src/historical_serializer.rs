@@ -1,70 +1,32 @@
 use std::collections::HashMap;
+use std::ops::Add;
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use common::historical::{HistoricalPage, HistoricalSnapshot};
 use common::url::url_to_filename;
+
+use chrono::offset::Utc;
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
+use itertools::Itertools;
 
 use crate::aggregator::AggregateKey;
 use crate::multi_page_merger::MergedSnapshot;
 
 /// Convert Unix timestamp to (year, month) tuple
 fn timestamp_to_year_month(fetch_time: u64) -> (u32, u32) {
-    let days_since_epoch = fetch_time / 86400;
-    let mut days = days_since_epoch;
-    let mut current_year = 1970u32;
-
-    // Skip to the correct year
-    while current_year < 2100 {
-        let days_in_year = if is_leap_year(current_year) { 366 } else { 365 };
-        if days < days_in_year as u64 {
-            break;
-        }
-        days -= days_in_year as u64;
-        current_year += 1;
-    }
-
-    // Now find the month
-    let is_leap = is_leap_year(current_year);
-    let days_in_months = if is_leap {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1u32;
-    for (i, &days_in_month) in days_in_months.iter().enumerate() {
-        if days < days_in_month as u64 {
-            month = (i + 1) as u32;
-            break;
-        }
-        days -= days_in_month as u64;
-    }
-
-    (current_year, month)
+    let fetch_time = SystemTime::UNIX_EPOCH.add(Duration::from_secs(fetch_time));
+    let fetch_time: DateTime<Utc> = fetch_time.into();
+    (fetch_time.year() as u32, fetch_time.month())
 }
 
 /// Convert (year, month) tuple to epoch seconds for the first day of the month
-fn timestamp_to_year_month_inverse(year_month: (u32, u32)) -> u64 {
-    let mut days = 0u64;
-
-    // Count days for all years before year_month.0
-    for y in 1970..year_month.0 {
-        days += if is_leap_year(y) { 366 } else { 365 };
-    }
-
-    // Count days for all months before year_month.1
-    let is_leap = is_leap_year(year_month.0);
-    let days_in_months = if is_leap {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    for m in 1..year_month.1 {
-        days += days_in_months[(m - 1) as usize] as u64;
-    }
-
-    days * 86400 // Convert to seconds
+fn timestamp_to_year_month_inverse((year, month): (u32, u32)) -> u64 {
+    let nd = NaiveDate::from_ymd_opt(year as i32, month, 1);
+    let nd = nd.unwrap();
+    let nt = NaiveTime::from_hms_opt(0, 0, 0);
+    let nt = nt.unwrap();
+    NaiveDateTime::new(nd, nt).and_utc().timestamp() as u64
 }
 
 pub fn is_leap_year(year: u32) -> bool {
@@ -125,7 +87,13 @@ impl HistoricalSerializer {
             let mut page = HistoricalPage::new(key.normalized_url.clone());
 
             // Add each merged snapshot to the historical page
-            for merged_snapshot in merged_snapshots {
+            for merged_snapshot in merged_snapshots.iter().sorted_by_cached_key(|h| {
+                h.base_page
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.fetch_time)
+                    .unwrap_or_default()
+            }) {
                 // Extract year_month from base_metadata
                 let year_month = if let Some(metadata) = &merged_snapshot.base_page.metadata {
                     timestamp_to_year_month(metadata.fetch_time)
@@ -164,7 +132,7 @@ impl HistoricalSerializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{types::FetchTask, url::hash_url};
+    use common::{historical::HistoricalContentType, types::FetchTask, url::hash_url};
 
     #[test]
     fn test_year_month_to_timestamp_epoch() {
@@ -272,7 +240,7 @@ mod tests {
 
         assert_eq!(
             snapshot.content_markdown,
-            Some("Merged content from pages 1 and 2".to_string())
+            HistoricalContentType::Literal("Merged content from pages 1 and 2".to_string())
         );
         assert_eq!(snapshot.links.len(), 2);
         assert!(snapshot.links.contains(&"http://link1.com".to_string()));
