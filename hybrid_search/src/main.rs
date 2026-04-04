@@ -1,33 +1,43 @@
 use anyhow::Result;
-use clap::Parser;
+use common::settings::CONFIG_FILE;
 use fastembed::{EmbeddingModel, InitOptions, ModelTrait, TextEmbedding};
 use qdrant_client::{
     qdrant::{Condition, Filter, QueryPointsBuilder},
     Qdrant,
 };
+use tracing::{info, level_filters::LevelFilter};
 
-#[derive(Parser)]
-struct Args {
-    /// Query text
-    query: Option<String>,
+use settings::Config;
+use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
-    /// Optional source filter
-    #[arg(long)]
-    source: Option<String>,
+mod settings;
 
-    /// Number of results wanted
-    #[arg(long, short, default_value = "5")]
-    limit: u64,
+fn setup_logging() {
+    // Initialize logging
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .with_span_events(FmtSpan::NONE)
+        .init();
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    setup_logging();
+
+    let config =
+        Config::file(CONFIG_FILE).unwrap_or_else(|_| panic!("Failed to load {}", CONFIG_FILE));
+
+    info!("config: {:?}", config);
 
     // ---------------------------
     // Init embedder
     // ---------------------------
-    println!(
+    info!(
         "model info: {:?}",
         fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2)
     );
@@ -42,19 +52,13 @@ async fn main() -> Result<()> {
     // ---------------------------
     // Embed query
     // ---------------------------
-    let embedding = embedder.embed(
-        vec![args
-            .query
-            .unwrap_or("son fucks mum in car".to_string())
-            .clone()],
-        None,
-    )?;
+    let embedding = embedder.embed(vec![config.query.clone()], None)?;
     let query_vector = embedding[0].clone();
 
     // ---------------------------
     // Build optional filter
     // ---------------------------
-    let filter = args
+    let filter = config
         .source
         .map(|source| Filter::must([Condition::matches_text("source", source)]));
 
@@ -64,11 +68,11 @@ async fn main() -> Result<()> {
     let query_request = match filter {
         None => QueryPointsBuilder::new(collection) // Collection name
             .query(query_vector) // Query vector
-            .limit(args.limit) // Search limit, number of results to return
+            .limit(config.limit) // Search limit, number of results to return
             .with_payload(true),
         Some(filter) => QueryPointsBuilder::new(collection) // Collection name
             .query(query_vector) // Query vector
-            .limit(args.limit) // Search limit, number of results to return
+            .limit(config.limit) // Search limit, number of results to return
             .filter(filter)
             .with_payload(true),
     };
@@ -77,7 +81,6 @@ async fn main() -> Result<()> {
     // ---------------------------
     // Display results
     // ---------------------------
-    println!("\nTop results:\n");
 
     for (i, point) in results.result.iter().enumerate() {
         let payload = &point.payload;
@@ -94,11 +97,13 @@ async fn main() -> Result<()> {
             .map(|v| v.as_str())
             .unwrap_or("");
 
-        println!("Result {}:", i + 1);
-        println!("Score: {:.4}", point.score);
-        println!("Source: {}", source);
-        println!("Text: {}", truncate(text, 200));
-        println!("Payload: {:?}\n", payload);
+        info!(
+            result = i + 1,
+            score = point.score,
+            source,
+            text = truncate(text, 200),
+            ?payload
+        );
     }
 
     Ok(())
