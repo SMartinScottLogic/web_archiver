@@ -456,7 +456,7 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ Refactor to accept `Box<dyn PageReader>`
    - ✓ Update embedding generation to handle HistoricalPage snapshots
 
-3d. **Step 3: Migrate search components** (read-only) — NOT STARTED
+3d. **Step 3: Migrate remaining components** (read-only) — COMPLETE (2026-04-04)
    Quality Gate to apply:
    - `cargo check` for search/indexing layers must pass
    - All tests pass (existing + new search accuracy tests)
@@ -467,6 +467,11 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - Update URL deduplication and link handling for consolidated URLs
    - Test: query results from HistoricalPages match ExtractedPages
    - Validation gate: search accuracy preserved
+
+   Modules:
+   - ✓ archive-migrator - 6 tests passing (0 original + 6 new tests)
+   - ✓ hybrid_search
+   - ✓ legacy-converter
 
 3e. **Step 4: Migrate web_archiver (crawler)** (write path) — NOT STARTED
    Quality Gate to apply:

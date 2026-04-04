@@ -1,10 +1,15 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     fs::{File, create_dir_all},
     path::Path,
 };
 
 use anyhow::Context as _;
+
+use crate::{
+    historical::{HistoricalContentType, HistoricalPage, HistoricalSnapshot},
+    url::canonicalize_url,
+};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
@@ -65,6 +70,28 @@ impl ExtractedPage {
             .with_context(|| format!("Failed to write JSON to {:?}", path))?;
 
         Ok(())
+    }
+}
+
+impl From<ExtractedPage> for HistoricalPage {
+    fn from(val: ExtractedPage) -> Self {
+        let url = canonicalize_url(&val.task.url).unwrap_or_default();
+        let content_markdown = match val.content_markdown {
+            Some(text) => HistoricalContentType::Literal(text),
+            None => HistoricalContentType::None,
+        };
+        let current = HistoricalSnapshot {
+            task: val.task,
+            content_markdown,
+            links: Vec::new(),
+            metadata: val.metadata,
+        };
+        HistoricalPage {
+            url,
+            current: Some(current),
+            historical_snapshots: VecDeque::new(),
+            all_links: HashSet::new(),
+        }
     }
 }
 

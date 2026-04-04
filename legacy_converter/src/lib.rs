@@ -10,6 +10,7 @@ use tracing::{debug, info};
 
 use common::{
     Archiver,
+    historical::HistoricalPage,
     types::{ExtractedPage, FetchTask, PageMetadata},
 };
 
@@ -100,7 +101,9 @@ pub fn store_file(
     fetch_time: u64,
     delete_source: bool,
 ) -> Result<()> {
-    let converted = convert(path, fetch_time).or_else(|_| weird::read_file(path, fetch_time))?;
+    let converted: HistoricalPage = convert(path, fetch_time)
+        .or_else(|_| weird::read_file(path, fetch_time))?
+        .into();
     // Save new file
     let destination = archiver.store_page(&converted)?;
     info!(source = ?path, ?destination, "page stored");
