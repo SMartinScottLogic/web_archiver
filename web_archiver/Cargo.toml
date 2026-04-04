@@ -28,4 +28,4 @@ figment = {version = "0.10.19", features = ["yaml"]}
 path = "../common"
 
 [dev-dependencies]
-mockall = "0.14.0"            # A powerful mock object library for Rust. 
+mockall = { workspace = true }

@@ -164,6 +164,7 @@ If needed:
 ```bash
 echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
 sudo ldconfig
+LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 ```
 
 ### Run Qdrant
