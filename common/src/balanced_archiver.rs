@@ -9,6 +9,7 @@ use url::Url;
 
 use crate::{
     Archiver,
+    page::PageReader,
     types::ExtractedPage,
     url::{hash_url, sanitize},
 };
@@ -24,19 +25,23 @@ impl BalancedArchiver {
 }
 
 impl Archiver for BalancedArchiver {
-    fn store_page(&self, page: &ExtractedPage) -> anyhow::Result<PathBuf> {
+    fn store_page(&self, page: &dyn PageReader) -> anyhow::Result<PathBuf> {
         let path = self.generate_filename(page)?;
-        page.write_page(&path)?;
+        page.write(&path)?;
         Ok(path)
     }
 
-    fn generate_filename(&self, page: &ExtractedPage) -> anyhow::Result<PathBuf> {
-        let url_str = &page.task.url;
+    fn generate_filename(&self, page: &dyn PageReader) -> anyhow::Result<PathBuf> {
+        let current = page
+            .current()
+            .as_ref()
+            .ok_or_else(|| anyhow::Error::msg("Failed to get current snapshot"))?;
+        let url_str = &current.task.url;
 
         let url = Url::parse(url_str).with_context(|| format!("Invalid URL: {}", url_str))?;
 
         // --- Time ---
-        let datetime = page
+        let datetime = current
             .metadata
             .clone()
             .map(|metadata| metadata.fetch_time)

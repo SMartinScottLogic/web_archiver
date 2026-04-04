@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{File, create_dir_all},
-    path::PathBuf,
+    path::Path,
 };
 
 use anyhow::Context as _;
@@ -51,7 +51,7 @@ pub struct PageMetadata {
 }
 
 impl ExtractedPage {
-    pub fn write_page(&self, path: &PathBuf) -> anyhow::Result<()> {
+    pub fn write_page(&self, path: &Path) -> anyhow::Result<()> {
         let parent = path
             .parent()
             .with_context(|| format!("Failed to get parent of {:?}", path))?;

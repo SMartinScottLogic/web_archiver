@@ -1,14 +1,23 @@
+use std::path::Path;
+
+use mockall::automock;
+
 use crate::historical::{HistoricalContentType, HistoricalPage, HistoricalSnapshot};
 use crate::types::ExtractedPage;
 
 /// A trait for reading page data, abstracting over both ExtractedPage and HistoricalPage.
 /// This enables crates to work with either type without knowing which concrete implementation they have.
+#[automock]
+#[allow(clippy::needless_lifetimes)]
 pub trait PageReader {
     /// Get the canonical URL for this page
     fn url(&self) -> &str;
 
     /// Get current snapshot for this page
     fn current(&self) -> &Option<HistoricalSnapshot>;
+
+    /// Get mutable reference to the current snapshot for this page
+    fn current_mut<'a>(&'a mut self) -> Option<&'a mut HistoricalSnapshot>;
 
     /// Get historical snapshots (NOT current) for this page
     /// For ExtractedPage: returns an empty slice
@@ -25,6 +34,9 @@ pub trait PageReader {
 
     /// Get the fetch time of the most recent snapshot
     fn latest_fetch_time(&self) -> u64;
+
+    /// Write the page to the supplied path
+    fn write(&self, path: &Path) -> anyhow::Result<()>;
 }
 
 impl PageReader for ExtractedPage {
@@ -33,6 +45,10 @@ impl PageReader for ExtractedPage {
     }
 
     fn current(&self) -> &Option<HistoricalSnapshot> {
+        todo!("convert ExtractedPage to HistoricalSnapshot?");
+    }
+
+    fn current_mut(&mut self) -> Option<&mut HistoricalSnapshot> {
         todo!("convert ExtractedPage to HistoricalSnapshot?")
     }
 
@@ -55,6 +71,10 @@ impl PageReader for ExtractedPage {
         // For a single extracted page, the fetch time is also the latest
         self.fetch_time()
     }
+
+    fn write(&self, path: &Path) -> anyhow::Result<()> {
+        self.write_page(path)
+    }
 }
 
 impl PageReader for HistoricalPage {
@@ -64,6 +84,10 @@ impl PageReader for HistoricalPage {
 
     fn current(&self) -> &Option<HistoricalSnapshot> {
         &self.current
+    }
+
+    fn current_mut(&mut self) -> Option<&mut HistoricalSnapshot> {
+        self.current.as_mut()
     }
 
     fn snapshots(&mut self) -> &[HistoricalSnapshot] {
@@ -94,6 +118,10 @@ impl PageReader for HistoricalPage {
             .as_ref()
             .and_then(|s| s.metadata.as_ref().map(|m| m.fetch_time))
             .unwrap_or(0)
+    }
+
+    fn write(&self, path: &Path) -> anyhow::Result<()> {
+        self.write_page(path)
     }
 }
 

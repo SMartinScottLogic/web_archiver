@@ -15,7 +15,7 @@ pub mod url;
 
 #[automock]
 pub trait Archiver {
-    fn generate_filename(&self, page: &types::ExtractedPage) -> anyhow::Result<PathBuf>;
-    fn store_page(&self, page: &types::ExtractedPage) -> anyhow::Result<PathBuf>;
+    fn generate_filename(&self, page: &dyn page::PageReader) -> anyhow::Result<PathBuf>;
+    fn store_page(&self, page: &dyn page::PageReader) -> anyhow::Result<PathBuf>;
 }
 pub use balanced_archiver::BalancedArchiver as DefaultArchiver;

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use simhash::simhash;
 use std::collections::{HashSet, VecDeque};
 use std::fs::{File, create_dir_all};
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::compressed_string;
 use crate::types::{ExtractedPage, FetchTask, PageMetadata};
@@ -143,7 +143,7 @@ impl HistoricalPage {
     }
 
     /// Serialize this HistoricalPage to a JSON file with pretty formatting
-    pub fn write_page(&self, path: &PathBuf) -> anyhow::Result<()> {
+    pub fn write_page(&self, path: &Path) -> anyhow::Result<()> {
         let parent = path
             .parent()
             .with_context(|| format!("Failed to get parent of {:?}", path))?;
