@@ -117,12 +117,188 @@ pub fn store_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    use common::MockArchiver;
+    use mockall::predicate::*;
+
+    // ----------------------------
+    // Helpers
+    // ----------------------------
+
+    fn tmp_file(name: &str, content: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(name);
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    fn sample_legacy_json() -> String {
+        serde_json::json!({
+            "_id": "1",
+            "story_id": "story1",
+            "page": 1,
+            "uri": "https://example.com",
+            "story": ["para1", "para2"],
+            "keywords": ["rust", "parser"],
+            "title": "Test Title",
+            "author": "Test Author"
+        })
+        .to_string()
+    }
+
+    // ----------------------------
+    // parse_unambiguous_date tests
+    // ----------------------------
 
     #[test]
-    fn test_parse_unambiguous_date() {
+    fn test_parse_unambiguous_date_valid_formats() {
         assert!(parse_unambiguous_date("2026-03-13").is_ok());
         assert!(parse_unambiguous_date("13/03/2026").is_ok());
         assert!(parse_unambiguous_date("03/13/2026").is_ok());
         assert!(parse_unambiguous_date("01/02/2026").is_err());
+        assert!(parse_unambiguous_date("2026-03-13 12:00:00").is_ok());
+    }
+
+    #[test]
+    fn test_parse_unambiguous_date_ambiguous() {
+        let err = parse_unambiguous_date("01/02/2026").unwrap_err();
+        assert!(err.contains("Ambiguous"));
+    }
+
+    #[test]
+    fn test_parse_unambiguous_date_invalid() {
+        let err = parse_unambiguous_date("not-a-date").unwrap_err();
+        assert!(err.contains("Invalid"));
+    }
+
+    #[test]
+    fn test_parse_unambiguous_date_consistent_timestamp() {
+        let ts1 = parse_unambiguous_date("2026-03-13").unwrap();
+        let ts2 = parse_unambiguous_date("2026-03-13 00:00:00").unwrap();
+        assert_eq!(ts1, ts2);
+    }
+
+    // ----------------------------
+    // convert tests
+    // ----------------------------
+
+    #[test]
+    fn test_convert_basic() {
+        let path = tmp_file("convert_basic.json", &sample_legacy_json());
+
+        let page = convert(&path, 12345).unwrap();
+
+        assert_eq!(page.task.url, "https://example.com");
+        assert_eq!(
+            page.metadata.as_ref().unwrap().title.as_ref().unwrap(),
+            "Test Title"
+        );
+
+        let content = page.content_markdown.unwrap();
+        assert!(content.contains("para1"));
+        assert!(content.contains("para2"));
+
+        let keywords = &page.metadata.unwrap().document_metadata.unwrap()[0]["keywords"];
+        assert_eq!(keywords, "rust,parser");
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_convert_invalid_json() {
+        let path = tmp_file("convert_invalid.json", "not json");
+
+        let result = convert(&path, 12345);
+        assert!(result.is_err());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    // ----------------------------
+    // store_file tests (with mock)
+    // ----------------------------
+
+    #[test]
+    fn test_store_file_success_no_delete() {
+        let path = tmp_file("store_success.json", &sample_legacy_json());
+
+        let mut mock = MockArchiver::new();
+        mock.expect_store_page()
+            .times(1)
+            .returning(|_| Ok::<PathBuf, anyhow::Error>(PathBuf::from("stored_path")));
+
+        let result = store_file(&mock, &path, 1111, false);
+        assert!(result.is_ok());
+
+        // file should still exist
+        assert!(path.exists());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_store_file_success_with_delete() {
+        let path = tmp_file("store_delete.json", &sample_legacy_json());
+
+        let mut mock = MockArchiver::new();
+        mock.expect_store_page()
+            .times(1)
+            .returning(|_| Ok::<PathBuf, anyhow::Error>(PathBuf::from("stored_path")));
+
+        let result = store_file(&mock, &path, 1111, true);
+        assert!(result.is_ok());
+
+        // file should be deleted
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_store_file_fallback_to_weird() {
+        fn sample_input() -> String {
+            r#"
+        
+My Story Title
+
+by Jane Doe
+
+Story URL: https://example.com/story
+Packaged: 2024-01-01
+TAGS: Rust Parsing
+EXTRA URL: https://example.com/extra
+
+This is the story content.
+Second line.
+"#
+            .to_string()
+        }
+        // invalid JSON forces convert() to fail
+        let path = tmp_file("fallback.txt", &sample_input());
+
+        let mut mock = MockArchiver::new();
+        mock.expect_store_page()
+            .times(1)
+            .returning(|_| Ok::<PathBuf, anyhow::Error>(PathBuf::from("stored_path")));
+
+        // NOTE: this assumes weird::read_file succeeds for this input.
+        // If it doesn't, you may want to mock weird::read_file separately.
+        let _ = store_file(&mock, &path, 1111, false);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_store_file_archiver_error_propagates() {
+        let path = tmp_file("archiver_error.json", &sample_legacy_json());
+
+        let mut mock = MockArchiver::new();
+        mock.expect_store_page()
+            .times(1)
+            .returning(|_| Err::<PathBuf, anyhow::Error>(anyhow::anyhow!("fail")));
+
+        let result = store_file(&mock, &path, 1111, false);
+        assert!(result.is_err());
+
+        fs::remove_file(path).unwrap();
     }
 }

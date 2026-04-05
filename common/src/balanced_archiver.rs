@@ -132,3 +132,286 @@ impl Archiver for BalancedArchiver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::historical::{HistoricalContentType, HistoricalSnapshot};
+    use crate::page::MockPageReader;
+    use crate::types::PageMetadata;
+    use crate::types::{ExtractedPage, FetchTask};
+    use mockall::predicate::*;
+    use std::{fs, path::Path};
+    use tracing_test::traced_test;
+
+    fn make_snapshot(url: &str, ts: u64) -> HistoricalSnapshot {
+        HistoricalSnapshot {
+            task: FetchTask {
+                url_id: 1,
+                url: url.to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            content_markdown: HistoricalContentType::None,
+            links: vec![],
+            metadata: Some(PageMetadata {
+                status_code: 200,
+                content_type: Some("text/html".into()),
+                fetch_time: ts,
+                title: None,
+                document_metadata: None,
+            }),
+        }
+    }
+
+    fn cleanup(path: &Path) {
+        if path.exists() {
+            let _ = fs::remove_dir_all(path);
+        }
+    }
+
+    fn test_dir() -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push("balanced_archiver_tests");
+        dir.push(format!("test-{}", uuid::Uuid::new_v4()));
+        dir
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_basic_path_structure() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/a/b/c", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+        let path_str = path.to_string_lossy();
+
+        assert!(path_str.contains("example.com"));
+        assert!(path_str.contains("a"));
+        assert!(path_str.contains("b"));
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_slug_in_filename() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/a/b/my-page", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        assert!(filename.contains("my-page"));
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_empty_slug_fallback() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        assert!(filename.contains("_")); // fallback slug
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_filename_contains_date() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/page", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        assert!(filename.contains("2023-11"));
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_invalid_url_fails() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("not a url", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let result = archiver.generate_filename(&mock);
+
+        assert!(result.is_err());
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_invalid_timestamp_fails() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com", u64::MAX);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let result = archiver.generate_filename(&mock);
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().to_str().unwrap().ends_with("_1969-12.json"));
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_no_current_snapshot() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(None);
+
+        let result = archiver.generate_filename(&mock);
+
+        assert!(result.is_err());
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_store_page_calls_write() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/write", 1700000000);
+
+        let mut mock = MockPageReader::new();
+
+        mock.expect_current().return_const(Some(snapshot));
+
+        mock.expect_write().times(1).returning(|path| {
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(path, b"{}")?;
+            Ok(())
+        });
+
+        let path = archiver.store_page(&mock).unwrap();
+
+        assert!(path.exists());
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_same_url_overwrites() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/same", 1700000000);
+
+        let mut mock1 = MockPageReader::new();
+        mock1.expect_current().return_const(Some(snapshot.clone()));
+        mock1.expect_write().returning(|path| {
+            println!("Write to {:?}", path);
+            fs::create_dir_all(path.parent().unwrap())?;
+            let page = ExtractedPage {
+                task: FetchTask {
+                    url_id: 1,
+                    url: "https://example.com/same".into(),
+                    depth: 0,
+                    priority: 0,
+                    discovered_from: None,
+                },
+                content_markdown: None,
+                links: vec![],
+                metadata: None,
+            };
+            let file = fs::File::create(path)?;
+            serde_json::to_writer(file, &page)?;
+            Ok(())
+        });
+
+        let path1 = archiver.store_page(&mock1).unwrap();
+
+        let mut mock2 = MockPageReader::new();
+        mock2.expect_current().return_const(Some(snapshot));
+        mock2.expect_write().returning(|_| Ok(()));
+
+        let path2 = archiver.store_page(&mock2).unwrap();
+
+        assert_eq!(path1, path2);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_sanitization_in_slug() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/a/<>bad:slug", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        assert!(!filename.contains("<"));
+        assert!(!filename.contains(">"));
+        assert!(!filename.contains(":"));
+
+        cleanup(&base);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_hash_sharding_present() {
+        let base = test_dir();
+        let archiver = BalancedArchiver::new(base.clone());
+
+        let snapshot = make_snapshot("https://example.com/shard", 1700000000);
+
+        let mut mock = MockPageReader::new();
+        mock.expect_current().return_const(Some(snapshot));
+
+        let path = archiver.generate_filename(&mock).unwrap();
+
+        let components: Vec<_> = path.components().collect();
+
+        assert!(components.len() >= 4);
+
+        cleanup(&base);
+    }
+}

@@ -11,7 +11,12 @@ use rusqlite::{Connection, params};
 
 fn read_page(path: &Path) -> anyhow::Result<Box<dyn PageReader>> {
     let text = fs::read_to_string(path)?;
-
+    if let Err(e) = serde_json::from_str::<ExtractedPage>(&text) {
+        println!("error 1 : {:?}", e);
+    }
+    if let Err(e) = serde_json::from_str::<HistoricalPage>(&text) {
+        println!("error 2 : {:?}", e);
+    }
     if let Ok(content) = serde_json::from_str::<ExtractedPage>(&text) {
         return Ok(Box::new(content));
     }
@@ -32,27 +37,10 @@ pub fn process_file(
     // Read JSON
     let mut page = read_page(path)?;
 
-    let final_url = {
-        let current = page.current().as_ref().ok_or_else(|| {
-            anyhow::Error::msg(format!(
-                "failed to get current snapshot from {}",
-                path.display()
-            ))
-        })?;
-        let original_url = &current.task.url;
+    let final_url = canonicalize_url(page.url())
+        .ok_or_else(|| anyhow::Error::msg(format!("failed to canonicalise {}", page.url())))?;
 
-        canonicalize_url(original_url)
-            .ok_or_else(|| anyhow::Error::msg(format!("failed to canonicalise {}", original_url)))?
-    };
-
-    let current = page.current_mut().ok_or_else(|| {
-        anyhow::Error::msg(format!(
-            "failed to get current snapshot from {}",
-            path.display()
-        ))
-    })?;
-    current.task.url = final_url;
-    current.task.url_id = 0;
+    page.set_url(&final_url);
 
     let final_path = archiver.generate_filename(&*page)?;
 
@@ -131,10 +119,12 @@ pub fn ensure_complete_in_db(page: &dyn PageReader, conn: &mut Connection) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::historical::HistoricalSnapshot;
+    use common::historical::{HistoricalContentType, HistoricalSnapshot};
     use common::types::FetchTask;
     use rusqlite::Connection;
-    use std::fs;
+    use std::collections::{HashSet, VecDeque};
+    use std::fs::{self, File};
+    use std::io::{BufWriter, Write as _};
     use tempfile::tempdir;
 
     use common::MockArchiver;
@@ -151,9 +141,7 @@ mod tests {
                 discovered_from: Some(0),
             },
             metadata: None,
-            content_markdown: common::historical::HistoricalContentType::Literal(
-                "Hello World".into(),
-            ),
+            content_markdown: HistoricalContentType::Literal("Hello World".into()),
             links: vec![],
         }
     }
@@ -174,7 +162,22 @@ mod tests {
         let path = dir.path().join("file.json");
 
         // Minimal valid JSON depends on your real structs
-        fs::write(&path, r#"{"dummy":"data"}"#).unwrap();
+        let content = ExtractedPage {
+            task: FetchTask {
+                url_id: 0,
+                url: "https://example.com/".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            content_markdown: Some("Example content".to_string()),
+            links: Vec::new(),
+            metadata: None,
+        };
+        let file = File::create(&path).unwrap();
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &content).unwrap();
+        writer.flush().unwrap();
 
         let mut archiver = MockArchiver::new();
         {
@@ -193,12 +196,111 @@ mod tests {
     }
 
     #[test]
+    fn test_process_file_extracted_page() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("file.json");
+
+        let content = ExtractedPage {
+            task: FetchTask {
+                url_id: 0,
+                url: "https://example.com/".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            content_markdown: Some("Example content".to_string()),
+            links: Vec::new(),
+            metadata: None,
+        };
+        let file = File::create(&path).unwrap();
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &content).unwrap();
+        writer.flush().unwrap();
+
+        let mut archiver = MockArchiver::new();
+        {
+            let path = path.clone();
+            archiver
+                .expect_generate_filename()
+                .returning(move |_| Ok(path.clone()));
+        }
+
+        let result = process_file(&archiver, &path, false).unwrap();
+
+        let result = result.unwrap();
+
+        assert_eq!("https://example.com/", result.url());
+    }
+
+    #[test]
+    fn test_process_file_historical_page() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("file.json");
+
+        let content = HistoricalPage {
+            url: "https://example.com/".to_string(),
+            current: Some(HistoricalSnapshot {
+                task: FetchTask {
+                    url_id: 0,
+                    url: "example.com".to_string(),
+                    depth: 0,
+                    priority: 0,
+                    discovered_from: None,
+                },
+                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
+                links: Vec::new(),
+                metadata: None,
+            }),
+            historical_snapshots: VecDeque::new(),
+            all_links: HashSet::new(),
+        };
+        let file = File::create(&path).unwrap();
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &content).unwrap();
+        writer.flush().unwrap();
+
+        let mut archiver = MockArchiver::new();
+        {
+            let path = path.clone();
+            archiver
+                .expect_generate_filename()
+                .returning(move |_| Ok(path.clone()));
+        }
+
+        let result = process_file(&archiver, &path, false).unwrap();
+
+        let result = result.unwrap();
+
+        assert_eq!("https://example.com/", result.url());
+    }
+
+    #[test]
     fn test_process_file_dry_run_move() {
         let dir = tempdir().unwrap();
         let src = dir.path().join("file.json");
         let dst = dir.path().join("new.json");
 
-        fs::write(&src, r#"{"dummy":"data"}"#).unwrap();
+        let content = HistoricalPage {
+            url: "https://example.com/".to_string(),
+            current: Some(HistoricalSnapshot {
+                task: FetchTask {
+                    url_id: 0,
+                    url: "example.com".to_string(),
+                    depth: 0,
+                    priority: 0,
+                    discovered_from: None,
+                },
+                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
+                links: Vec::new(),
+                metadata: None,
+            }),
+            historical_snapshots: VecDeque::new(),
+            all_links: HashSet::new(),
+        };
+        let file = File::create(&src).unwrap();
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &content).unwrap();
+        writer.flush().unwrap();
 
         let mut archiver = MockArchiver::new();
         {
@@ -207,13 +309,57 @@ mod tests {
                 .expect_generate_filename()
                 .returning(move |_| Ok(dst.clone()));
         }
-        let result = process_file(&archiver, &src, true);
+        let result = process_file(&archiver, &src, true).unwrap();
 
-        if let Ok(res) = result {
-            assert!(res.is_some());
-            assert!(src.exists());
-            assert!(!dst.exists());
+        let result = result.unwrap();
+
+        assert_eq!("https://example.com/", result.url());
+        assert!(src.exists());
+        assert!(!dst.exists());
+    }
+
+    #[test]
+    fn test_process_file_move() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("file.json");
+        let dst = dir.path().join("new.json");
+
+        let content = HistoricalPage {
+            url: "https://example.com/".to_string(),
+            current: Some(HistoricalSnapshot {
+                task: FetchTask {
+                    url_id: 0,
+                    url: "example.com".to_string(),
+                    depth: 0,
+                    priority: 0,
+                    discovered_from: None,
+                },
+                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
+                links: Vec::new(),
+                metadata: None,
+            }),
+            historical_snapshots: VecDeque::new(),
+            all_links: HashSet::new(),
+        };
+        let file = File::create(&src).unwrap();
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &content).unwrap();
+        writer.flush().unwrap();
+
+        let mut archiver = MockArchiver::new();
+        {
+            let dst = dst.clone();
+            archiver
+                .expect_generate_filename()
+                .returning(move |_| Ok(dst.clone()));
         }
+        let result = process_file(&archiver, &src, false).unwrap();
+
+        let result = result.unwrap();
+
+        assert_eq!("https://example.com/", result.url());
+        assert!(!src.exists());
+        assert!(dst.exists());
     }
 
     #[test]

@@ -19,7 +19,7 @@ pub struct HistoricalSnapshot {
     pub content_markdown: HistoricalContentType,
     /// All links discovered on this snapshot
     /// Serialization is skipped as links are consolidated into HistoricalPage::all_links
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     pub links: Vec<String>,
     /// Metadata about the fetch (status code, content type, fetch time, title, etc.)
     pub metadata: Option<PageMetadata>,

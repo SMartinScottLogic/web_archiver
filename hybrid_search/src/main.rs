@@ -1,15 +1,15 @@
 use anyhow::Result;
 use common::settings::CONFIG_FILE;
 use fastembed::{EmbeddingModel, InitOptions, ModelTrait, TextEmbedding};
-use qdrant_client::{
-    qdrant::{Condition, Filter, QueryPointsBuilder},
-    Qdrant,
-};
+use qdrant_client::
+    Qdrant
+;
 use tracing::{info, level_filters::LevelFilter};
 
 use settings::Config;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
+mod search;
 mod settings;
 
 fn setup_logging() {
@@ -41,81 +41,70 @@ async fn main() -> Result<()> {
         "model info: {:?}",
         fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2)
     );
-    let mut embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+    let embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
     // ---------------------------
     // Connect to Qdrant
     // ---------------------------
     let client = Qdrant::from_url("http://localhost:6334").build()?;
 
-    let collection = "articles";
+    search::perform_search(config, embedder, client).await
 
-    // ---------------------------
-    // Embed query
-    // ---------------------------
-    let embedding = embedder.embed(vec![config.query.clone()], None)?;
-    let query_vector = embedding[0].clone();
+    // // ---------------------------
+    // // Embed query
+    // // ---------------------------
+    // let embedding = embedder.embed(vec![config.query.clone()], None)?;
+    // let query_vector = embedding[0].clone();
 
-    // ---------------------------
-    // Build optional filter
-    // ---------------------------
-    let filter = config
-        .source
-        .map(|source| Filter::must([Condition::matches_text("source", source)]));
+    // // ---------------------------
+    // // Build optional filter
+    // // ---------------------------
+    // let filter = config
+    //     .source
+    //     .map(|source| Filter::must([Condition::matches_text("source", source)]));
 
-    // ---------------------------
-    // Search
-    // ---------------------------
-    let query_request = match filter {
-        None => QueryPointsBuilder::new(collection) // Collection name
-            .query(query_vector) // Query vector
-            .limit(config.limit) // Search limit, number of results to return
-            .with_payload(true),
-        Some(filter) => QueryPointsBuilder::new(collection) // Collection name
-            .query(query_vector) // Query vector
-            .limit(config.limit) // Search limit, number of results to return
-            .filter(filter)
-            .with_payload(true),
-    };
+    // // ---------------------------
+    // // Search
+    // // ---------------------------
+    // let query_request = match filter {
+    //     None => QueryPointsBuilder::new(config.collection) // Collection name
+    //         .query(query_vector) // Query vector
+    //         .limit(config.limit) // Search limit, number of results to return
+    //         .with_payload(true),
+    //     Some(filter) => QueryPointsBuilder::new(config.collection) // Collection name
+    //         .query(query_vector) // Query vector
+    //         .limit(config.limit) // Search limit, number of results to return
+    //         .filter(filter)
+    //         .with_payload(true),
+    // };
 
-    let results = client.query(query_request).await?;
-    // ---------------------------
-    // Display results
-    // ---------------------------
+    // let results = client.query(query_request).await?;
+    // // ---------------------------
+    // // Display results
+    // // ---------------------------
 
-    for (i, point) in results.result.iter().enumerate() {
-        let payload = &point.payload;
+    // for (i, point) in results.result.iter().enumerate() {
+    //     let payload = &point.payload;
 
-        let text = payload
-            .get("text")
-            .and_then(|v| v.as_str())
-            .map(|v| v.as_str())
-            .unwrap_or("");
+    //     let text = payload
+    //         .get("text")
+    //         .and_then(|v| v.as_str())
+    //         .map(|v| v.as_str())
+    //         .unwrap_or("");
 
-        let source = payload
-            .get("source")
-            .and_then(|v| v.as_str())
-            .map(|v| v.as_str())
-            .unwrap_or("");
+    //     let source = payload
+    //         .get("source")
+    //         .and_then(|v| v.as_str())
+    //         .map(|v| v.as_str())
+    //         .unwrap_or("");
 
-        info!(
-            result = i + 1,
-            score = point.score,
-            source,
-            text = truncate(text, 200),
-            ?payload
-        );
-    }
+    //     info!(
+    //         result = i + 1,
+    //         score = point.score,
+    //         source,
+    //         text = truncate(text, 200),
+    //         ?payload
+    //     );
+    // }
 
-    Ok(())
-}
-
-// ---------------------------
-// Helper
-// ---------------------------
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}...", &s[..max])
-    } else {
-        s.to_string()
-    }
+    // Ok(())
 }

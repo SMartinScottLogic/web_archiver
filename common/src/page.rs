@@ -13,6 +13,9 @@ pub trait PageReader {
     /// Get the canonical URL for this page
     fn url(&self) -> &str;
 
+    /// Set the canonical URL for this page
+    fn set_url(&mut self, url: &str);
+
     /// Get current snapshot for this page
     fn current(&self) -> &Option<HistoricalSnapshot>;
 
@@ -42,6 +45,10 @@ pub trait PageReader {
 impl PageReader for ExtractedPage {
     fn url(&self) -> &str {
         &self.task.url
+    }
+
+    fn set_url(&mut self, url: &str) {
+        self.task.url = url.to_string();
     }
 
     fn current(&self) -> &Option<HistoricalSnapshot> {
@@ -80,6 +87,10 @@ impl PageReader for ExtractedPage {
 impl PageReader for HistoricalPage {
     fn url(&self) -> &str {
         &self.url
+    }
+
+    fn set_url(&mut self, url: &str) {
+        self.url = url.to_string();
     }
 
     fn current(&self) -> &Option<HistoricalSnapshot> {

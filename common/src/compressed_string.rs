@@ -38,3 +38,84 @@ where
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct TestStruct {
+        #[serde(serialize_with = "serialize", deserialize_with = "deserialize")]
+        value: String,
+    }
+
+    #[test]
+    fn test_round_trip_basic() {
+        let original = TestStruct {
+            value: "Hello, world!".to_string(),
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let decoded: TestStruct = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_empty_string() {
+        let original = TestStruct {
+            value: "".to_string(),
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let decoded: TestStruct = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_large_string() {
+        let large_text = "abc123".repeat(10_000);
+
+        let original = TestStruct { value: large_text };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let decoded: TestStruct = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_invalid_base64() {
+        let invalid_json = r#"{"value":"!!!not_base64!!!"}"#;
+
+        let result: Result<TestStruct, _> = serde_json::from_str(invalid_json);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_corrupted_compressed_data() {
+        // Valid base64, but not valid zstd-compressed data
+        let corrupted = base64::engine::general_purpose::STANDARD.encode("not compressed");
+
+        let json = format!(r#"{{"value":"{}"}}"#, corrupted);
+
+        let result: Result<TestStruct, _> = serde_json::from_str(&json);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unicode_string() {
+        let original = TestStruct {
+            value: "こんにちは🌍🚀".to_string(),
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let decoded: TestStruct = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+}

@@ -21,3 +21,6 @@ nom = "8.0.0"                 # A byte-oriented, zero-copy, parser combinators l
 
 [dependencies.common]
 path = "../common"
+
+[dev-dependencies]
+mockall = { workspace = true }
