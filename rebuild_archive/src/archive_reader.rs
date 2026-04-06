@@ -178,6 +178,11 @@ impl ArchiveReader {
 mod tests {
     use super::*;
 
+    use serde_json::json;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::tempdir;
+
     #[test]
     fn test_archive_reader_creation() {
         let reader = ArchiveReader::new("archive", "output");
@@ -205,5 +210,339 @@ mod tests {
 
         assert_eq!(reader.stats().files_read, 5);
         assert_eq!(reader.stats().files_failed, 2);
+    }
+
+    /// Helper to create a JSON file with given content
+    fn write_json_file(path: &std::path::Path, value: serde_json::Value) {
+        let mut file = File::create(path).unwrap();
+        write!(file, "{}", value).unwrap();
+    }
+
+    #[test]
+    fn test_read_page_paths_by_domain_basic() {
+        let dir = tempdir().unwrap();
+
+        let file_path = dir.path().join("page1.json");
+
+        let data = json!({
+            "task": {
+                "url": "https://example.com/page1"
+            }
+        });
+
+        write_json_file(&file_path, data);
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("example.com"));
+
+        let pages = &result["example.com"];
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].url, "https://example.com/page1");
+    }
+
+    #[test]
+    fn test_read_page_paths_multiple_domains() {
+        let dir = tempdir().unwrap();
+
+        let file1 = dir.path().join("a.json");
+        let file2 = dir.path().join("b.json");
+
+        write_json_file(
+            &file1,
+            json!({
+                "task": { "url": "https://example.com/a" }
+            }),
+        );
+
+        write_json_file(
+            &file2,
+            json!({
+                "task": { "url": "https://another.com/b" }
+            }),
+        );
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key("example.com"));
+        assert!(result.contains_key("another.com"));
+    }
+
+    #[test]
+    fn test_read_page_paths_invalid_json_skipped() {
+        let dir = tempdir().unwrap();
+
+        let valid = dir.path().join("valid.json");
+        let invalid = dir.path().join("invalid.json");
+
+        write_json_file(
+            &valid,
+            json!({
+                "task": { "url": "https://example.com" }
+            }),
+        );
+
+        // Write invalid JSON
+        let mut file = File::create(&invalid).unwrap();
+        write!(file, "{{ invalid json ").unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("example.com"));
+    }
+
+    #[test]
+    fn test_read_page_paths_missing_url() {
+        let dir = tempdir().unwrap();
+
+        let file_path = dir.path().join("missing.json");
+
+        write_json_file(
+            &file_path,
+            json!({
+                "task": {}
+            }),
+        );
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        // Should fall back to "unknown"
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("unknown"));
+
+        let pages = &result["unknown"];
+        assert_eq!(pages[0].url, "");
+    }
+
+    #[test]
+    fn test_load_page_success_and_failure() {
+        let dir = tempdir().unwrap();
+
+        let valid_path = dir.path().join("valid.json");
+        let invalid_path = dir.path().join("invalid.json");
+
+        // NOTE: This assumes ExtractedPage can deserialize from this minimal structure.
+        // If not, adjust to match your actual struct.
+        write_json_file(&valid_path, valid_page_json("https://example.com"));
+
+        let mut invalid_file = File::create(&invalid_path).unwrap();
+        write!(invalid_file, "not json").unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+
+        let ok_result = reader.load_page(&valid_path);
+        let err_result = reader.load_page(&invalid_path);
+
+        // We don't assert Ok strictly since ExtractedPage schema may differ,
+        // but we ensure failure path works
+        assert!(ok_result.is_ok());
+        assert!(err_result.is_err());
+    }
+
+    #[test]
+    fn test_read_all_pages_mixed_results() {
+        let dir = tempdir().unwrap();
+
+        let valid = dir.path().join("valid.json");
+        let invalid = dir.path().join("invalid.json");
+
+        write_json_file(
+            &valid,
+            json!({
+                "task": { "url": "https://example.com" }
+            }),
+        );
+
+        let mut file = File::create(&invalid).unwrap();
+        write!(file, "bad json").unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let results = reader.read_all_pages();
+
+        assert_eq!(results.len(), 2);
+
+        let mut has_error = false;
+        for (_path, res) in results {
+            if res.is_err() {
+                has_error = true;
+            }
+        }
+
+        assert!(has_error, "Expected at least one failure");
+    }
+
+    #[test]
+    fn test_nested_directories_are_scanned() {
+        let dir = tempdir().unwrap();
+        let nested_dir = dir.path().join("nested");
+        fs::create_dir(&nested_dir).unwrap();
+
+        let file_path = nested_dir.join("page.json");
+
+        write_json_file(
+            &file_path,
+            json!({
+                "task": { "url": "https://nested.com/page" }
+            }),
+        );
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        assert!(result.contains_key("nested.com"));
+    }
+
+    /// Create a fully valid ExtractedPage JSON
+    fn valid_page_json(url: &str) -> serde_json::Value {
+        json!({
+            "task": {
+                "url_id": 1,
+                "url": url,
+                "depth": 0,
+                "priority": 0,
+                "discovered_from": null
+            },
+            "content_markdown": "hello world",
+            "links": ["https://example.com/other"],
+            "metadata": {
+                "status_code": 200,
+                "content_type": "text/html",
+                "fetch_time": 123456,
+                "title": "Example",
+                "document_metadata": null
+            }
+        })
+    }
+
+    fn write_json(path: &std::path::Path, value: serde_json::Value) {
+        let mut file = File::create(path).unwrap();
+        write!(file, "{}", value).unwrap();
+    }
+
+    #[test]
+    fn test_load_page_success_full_validation() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("page.json");
+
+        write_json(&file_path, valid_page_json("https://example.com"));
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let page = reader.load_page(&file_path).unwrap();
+
+        assert_eq!(page.task.url, "https://example.com");
+        assert_eq!(page.task.url_id, 1);
+        assert_eq!(page.links.len(), 1);
+        assert_eq!(page.content_markdown.as_deref(), Some("hello world"));
+
+        let metadata = page.metadata.unwrap();
+        assert_eq!(metadata.status_code, 200);
+        assert_eq!(metadata.title.as_deref(), Some("Example"));
+    }
+
+    #[test]
+    fn test_load_page_file_not_found() {
+        let reader = ArchiveReader::new("archive", "output");
+        let path = std::path::PathBuf::from("non_existent.json");
+
+        let result = reader.load_page(&path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to open file"));
+    }
+
+    #[test]
+    fn test_load_page_invalid_json_error_message() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("bad.json");
+
+        let mut file = File::create(&file_path).unwrap();
+        write!(file, "not valid json").unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.load_page(&file_path);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to deserialize JSON"));
+    }
+
+    #[test]
+    fn test_read_page_paths_preserves_paths() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("page.json");
+
+        write_json(&file_path, valid_page_json("https://example.com"));
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        let pages = &result["example.com"];
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].path, file_path);
+    }
+
+    #[test]
+    fn test_read_page_paths_multiple_files_same_domain() {
+        let dir = tempdir().unwrap();
+
+        let f1 = dir.path().join("1.json");
+        let f2 = dir.path().join("2.json");
+
+        write_json(&f1, valid_page_json("https://example.com/a"));
+        write_json(&f2, valid_page_json("https://example.com/b"));
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        let pages = &result["example.com"];
+        assert_eq!(pages.len(), 2);
+
+        let urls: Vec<_> = pages.iter().map(|p| p.url.as_str()).collect();
+        assert!(urls.contains(&"https://example.com/a"));
+        assert!(urls.contains(&"https://example.com/b"));
+    }
+
+    #[test]
+    fn test_read_all_pages_success_case() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("page.json");
+
+        write_json(&file_path, valid_page_json("https://example.com"));
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let results = reader.read_all_pages();
+
+        assert_eq!(results.len(), 1);
+
+        let (_path, result) = &results[0];
+        assert!(result.is_ok());
+
+        let page = result.as_ref().unwrap();
+        assert_eq!(page.task.url, "https://example.com");
+    }
+
+    #[test]
+    fn test_read_all_pages_empty_directory() {
+        let dir = tempdir().unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let results = reader.read_all_pages();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_read_page_paths_empty_directory() {
+        let dir = tempdir().unwrap();
+
+        let reader = ArchiveReader::new(dir.path(), "output");
+        let result = reader.read_page_paths_by_domain().unwrap();
+
+        assert!(result.is_empty());
     }
 }

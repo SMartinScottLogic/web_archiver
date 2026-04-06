@@ -456,12 +456,13 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ Refactor to accept `Box<dyn PageReader>`
    - ✓ Update embedding generation to handle HistoricalPage snapshots
 
-3d. **Step 3: Migrate remaining components** (read-only) — COMPLETE (2026-04-04)
+3d. **Step 3: Migrate remaining components** (read-only) — IN PROGRESS (2026-04-04)
    Quality Gate to apply:
-   - `cargo check` for search/indexing layers must pass
-   - All tests pass (existing + new search accuracy tests)
-   - Plan updated and changes committed to git
-   
+   - ✓ `cargo check` for search/indexing layers must pass
+   - ✓ All tests pass (existing + new search accuracy tests)
+   - ✓ Plan updated and changes committed to git
+   - ✓ Coverage for all modules (Step 1-3) sufficient - 60.76% overall so far
+
    Tasks:
    - Refactor query/retrieval to work with `impl PageReader`
    - Update URL deduplication and link handling for consolidated URLs

@@ -150,3 +150,113 @@ impl CandleBert {
             .context("normalization")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candle_core::{Device, Tensor};
+
+    /// Helper to create a simple tensor
+    fn tensor_2d(data: &[f32], rows: usize, cols: usize) -> Tensor {
+        Tensor::from_slice(data, (rows, cols), &Device::Cpu).unwrap()
+    }
+
+    #[test]
+    fn test_device_cpu_forced() {
+        let device = CandleBert::device(true).unwrap();
+        match device {
+            Device::Cpu => {}
+            _ => panic!("Expected CPU device when cpu=true"),
+        }
+    }
+
+    #[test]
+    fn test_device_fallback() {
+        // When cpu = false, we should still get a valid device (CPU/GPU)
+        let device = CandleBert::device(false);
+        // We can't guarantee CUDA/Metal exists, but it must not error
+        match device {
+            Ok(Device::Cpu) | Ok(Device::Cuda(_)) | Ok(Device::Metal(_)) => {}
+            _ => panic!("Unexpected device type"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_l2_basic() {
+        let t = tensor_2d(&[3.0, 4.0], 1, 2);
+        let normalized = CandleBert::normalize_l2(&t).unwrap();
+
+        let v = normalized.to_vec2::<f32>().unwrap();
+        let norm = (v[0][0].powi(2) + v[0][1].powi(2)).sqrt();
+
+        assert!((norm - 1.0).abs() < 1e-5, "Vector is not unit length");
+    }
+
+    #[test]
+    fn test_normalize_l2_zero_vector() {
+        let t = tensor_2d(&[0.0, 0.0], 1, 2);
+        let result = CandleBert::normalize_l2(&t);
+        if let Ok(r) = &result {
+            let nan = r
+                .to_vec2::<f32>()
+                .iter()
+                .flat_map(|v| v.iter())
+                .flat_map(|v| v.iter())
+                .all(|v| v.is_nan());
+            assert!(nan, "Zero vector should normalize to NaN");
+        } else {
+            assert!(result.is_err(), "Zero vector should fail normalization");
+        }
+    }
+
+    #[test]
+    fn test_normalize_l2_multiple_rows() {
+        let t = tensor_2d(&[3.0, 4.0, 1.0, 2.0], 2, 2);
+
+        let normalized = CandleBert::normalize_l2(&t).unwrap();
+        let v = normalized.to_vec2::<f32>().unwrap();
+
+        for row in v {
+            let norm = (row[0].powi(2) + row[1].powi(2)).sqrt();
+            assert!((norm - 1.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_embed_trait_empty_input() {
+        struct DummyEmbedder;
+
+        impl Embedder for DummyEmbedder {
+            fn embed<S: AsRef<str> + Send + Sync + 'static, T: AsRef<[S]> + 'static>(
+                &mut self,
+                input: T,
+                _batch_size: Option<usize>,
+            ) -> anyhow::Result<Vec<Vec<f32>>> {
+                Ok(input.as_ref().iter().map(|_| vec![0.0]).collect())
+            }
+        }
+
+        let mut embedder = DummyEmbedder;
+        let result = embedder.embed(Vec::<String>::new(), None).unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Requires model download
+    fn test_default_constructor() {
+        // This may download a model — consider marking as ignored if needed
+        let model = CandleBert::default();
+        assert!(!model.normalize_embeddings);
+    }
+
+    #[test]
+    #[ignore] // Requires model download + heavy compute
+    fn test_real_embedding_shape() {
+        let mut model = CandleBert::new();
+        let result = model.embed(vec!["hello world"], None).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_empty());
+    }
+}
