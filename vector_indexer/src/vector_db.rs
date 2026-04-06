@@ -7,8 +7,10 @@ use qdrant_client::{
     },
 };
 
-use fastembed::TextEmbedding;
+//use rust_bert::pipelines::sentence_embeddings::SentenceEmbeddingsModel;
 use tracing::{error, info};
+
+use vector_common::{Embedder, candle_bert::CandleBert};
 
 #[cfg_attr(test, mockall::automock)]
 #[allow(async_fn_in_trait)]
@@ -23,16 +25,6 @@ pub trait VectorDb {
         &self,
         request: T,
     ) -> Result<PointsOperationResponse, QdrantError>;
-}
-
-#[cfg_attr(test, mockall::automock)]
-#[allow(clippy::needless_lifetimes)]
-pub trait Embedder {
-    fn embed<S: AsRef<str> + Send + Sync + 'static, T: AsRef<[S]> + 'static>(
-        &mut self,
-        input: T,
-        batch_size: Option<usize>,
-    ) -> anyhow::Result<Vec<Vec<f32>>>;
 }
 
 impl VectorDb for Qdrant {
@@ -69,14 +61,31 @@ impl VectorDb for Qdrant {
     }
 }
 
-impl Embedder for TextEmbedding {
-    fn embed<S: AsRef<str> + Send + Sync + 'static, T: AsRef<[S]> + 'static>(
-        &mut self,
-        input: T,
-        batch_size: Option<usize>,
-    ) -> anyhow::Result<Vec<Vec<f32>>> {
-        TextEmbedding::embed(self, input, batch_size)
-    }
+// impl Embedder for SentenceEmbeddingsModel {
+//     fn embed<S:AsRef<str> +Send+Sync+'static,T:AsRef<[S]> +'static>(&mut self,input:T,_batch_size:Option<usize>,) -> anyhow::Result<Vec<Vec<f32>>> {
+//         SentenceEmbeddingsModel::encode(self, input.as_ref()).context("encoding")
+//     }
+// }
+// impl Embedder for TextEmbedding {
+//     fn embed<S: AsRef<str> + Send + Sync + 'static, T: AsRef<[S]> + 'static>(
+//         &mut self,
+//         input: T,
+//         batch_size: Option<usize>,
+//     ) -> anyhow::Result<Vec<Vec<f32>>> {
+//         TextEmbedding::embed(self, input, batch_size)
+//     }
+// }
+
+pub fn load_embedding_model() -> impl Embedder {
+    // ---------------------------
+    // Initialize embedding model
+    // ---------------------------
+
+    //let mut model = SentenceEmbeddingsBuilder::remote(SentenceEmbeddingsModelType::AllMiniLmL6V2).create_model() ?;
+
+    //let mut embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+
+    CandleBert::new()
 }
 pub async fn setup_vector_db<T: VectorDb + Send + Sync>(
     client: &T,
@@ -106,6 +115,8 @@ pub async fn perform_query<T: VectorDb + Send + Sync, E: Embedder>(
 
 #[cfg(test)]
 mod tests {
+    use vector_common::MockEmbedder;
+
     use super::*;
 
     #[tokio::test]

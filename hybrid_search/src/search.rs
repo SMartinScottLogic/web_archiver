@@ -1,11 +1,12 @@
 use anyhow::Context;
-use fastembed::TextEmbedding;
+//use fastembed::TextEmbedding;
 use mockall::automock;
 use qdrant_client::{
     qdrant::{Condition, Filter, QueryPointsBuilder, QueryResponse},
     Qdrant,
 };
 use tracing::info;
+use vector_common::Embedder;
 
 use crate::settings::Config;
 
@@ -42,13 +43,16 @@ fn build_query(config: &Config, query_vector: Vec<f32>) -> QueryPointsBuilder {
 /// Perform search
 pub async fn perform_search(
     config: Config,
-    mut embedder: TextEmbedding,
+    //mut embedder: TextEmbedding,
+    mut embedder: impl Embedder,
     client: impl VectorDb,
 ) -> anyhow::Result<()> {
     // ---------------------------
     // Embed query
     // ---------------------------
     let embedding = embedder.embed(vec![config.query.clone()], None)?;
+
+    //let embedding = embedder.embed(vec![config.query.clone()], None)?;
     let query_vector = embedding[0].clone();
 
     let query_request = build_query(&config, query_vector);
@@ -105,6 +109,7 @@ mod tests {
     use super::*;
     use qdrant_client::qdrant::{QueryResponse, ScoredPoint};
     use std::collections::HashMap;
+    use vector_common::MockEmbedder;
 
     // ----------------------------
     // truncate tests (expanded)
@@ -235,8 +240,11 @@ mod tests {
             source: None,
         };
 
-        // Create a real embedder but give invalid state if possible
-        let embedder = TextEmbedding::try_new(Default::default()).unwrap();
+        let mut embedder = MockEmbedder::new();
+
+        embedder
+            .expect_embed::<String, Vec<String>>()
+            .returning(|_, _| Err(anyhow::Error::msg("expected error")));
 
         // Dummy client (won't be reached)
         let mut client = MockVectorDb::new();

@@ -1,13 +1,14 @@
 use anyhow::Result;
 use common::settings::CONFIG_FILE;
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+//use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use qdrant_client::Qdrant;
+//use rust_bert::pipelines::sentence_embeddings::{SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType};
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use vector_indexer::{
     populate_vector_db,
     settings::Config,
-    vector_db::{perform_query, setup_vector_db},
+    vector_db::{load_embedding_model, perform_query, setup_vector_db},
 };
 
 fn setup_logging() {
@@ -32,22 +33,17 @@ async fn main() -> Result<()> {
 
     info!("config: {:?}", config);
 
-    // ---------------------------
-    // Initialize embedding model
-    // ---------------------------
-    let mut embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+    let mut model = load_embedding_model();
+    info!("Embedder loaded");
+
     let client = Qdrant::from_url("http://localhost:6334").build()?;
     setup_vector_db(&client, &config.collection).await?;
+    info!("Connected to VectorDB");
 
-    perform_query(&mut embedder, &client, &config.collection, "sample doc").await?;
+    info!("Performing example query");
+    perform_query(&mut model, &client, &config.collection, "sample doc").await?;
 
-    populate_vector_db(
-        &mut embedder,
-        &client,
-        &config.collection,
-        &config.archive_dir,
-    )
-    .await?;
+    populate_vector_db(&mut model, &client, &config.collection, &config.archive_dir).await?;
 
     println!("Ingestion complete.");
 

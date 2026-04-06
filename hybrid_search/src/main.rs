@@ -1,13 +1,12 @@
 use anyhow::Result;
 use common::settings::CONFIG_FILE;
-use fastembed::{EmbeddingModel, InitOptions, ModelTrait, TextEmbedding};
-use qdrant_client::
-    Qdrant
-;
+//use fastembed::{EmbeddingModel, InitOptions, ModelTrait, TextEmbedding};
+use qdrant_client::Qdrant;
 use tracing::{info, level_filters::LevelFilter};
 
 use settings::Config;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
+use vector_common::create_default_embedder;
 
 mod search;
 mod settings;
@@ -37,11 +36,13 @@ async fn main() -> Result<()> {
     // ---------------------------
     // Init embedder
     // ---------------------------
-    info!(
-        "model info: {:?}",
-        fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2)
-    );
-    let embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+    // info!(
+    //     "model info: {:?}",
+    //     fastembed::EmbeddingModel::get_model_info(&EmbeddingModel::AllMiniLML6V2)
+    // );
+    let embedder = create_default_embedder();
+
+    //    let embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
     // ---------------------------
     // Connect to Qdrant
     // ---------------------------

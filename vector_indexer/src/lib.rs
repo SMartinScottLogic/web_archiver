@@ -10,9 +10,10 @@ use qdrant_client::qdrant::{PointStruct, UpsertPointsBuilder};
 use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use vector_common::Embedder;
 use walkdir::WalkDir;
 
-use crate::vector_db::{Embedder, VectorDb};
+use crate::vector_db::VectorDb;
 
 const CHUNK_SIZE: usize = 500;
 const OVERLAP: usize = 96;
@@ -141,12 +142,13 @@ pub async fn populate_vector_db(
 
 #[cfg(test)]
 mod tests {
-    use crate::vector_db::{MockEmbedder, MockVectorDb};
+    use crate::vector_db::MockVectorDb;
 
     use super::*;
     use std::fs;
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
+    use vector_common::MockEmbedder;
 
     #[test]
     fn read_page_fails_on_invalid_json() {

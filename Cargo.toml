@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "common", 
+    "common",
+    "vector_common",
     "archive_indexer",
     "archive_migrator",
     "hybrid_search",
@@ -50,3 +51,4 @@ simhash = "0.3.0"         # Simhash algorithm for 64-bit locality-sensitive hash
 oxidelta = "0.1.4"    # VCDIFF (RFC 3284) delta encoder/decoder — Rust reimplementation of xdelta3
 base64 = "0.22.1"                # encodes and decodes base64 as bytes or utf8
 zstd = "0.13"
+#rust-bert = "0.23.0"
