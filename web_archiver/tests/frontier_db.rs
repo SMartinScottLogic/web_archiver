@@ -10,9 +10,14 @@ fn setup_db() -> FrontierDb {
     // Create minimal schema for testing
     conn.execute_batch(
         r#"
+        CREATE TABLE articles (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE
+        );
         CREATE TABLE urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
+            article_id INTEGER NOT NULL,
             domain TEXT,
             discovered_at INTEGER
         );
@@ -38,6 +43,7 @@ fn setup_db() -> FrontierDb {
 fn test_enqueue_and_claim() {
     let db = setup_db();
     let task = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://example.com".to_string(),
         depth: 0,
@@ -56,6 +62,7 @@ fn test_enqueue_and_claim() {
 fn test_enqueue_batch_deduplication() {
     let db = setup_db();
     let t1 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://a.com".to_string(),
         depth: 0,
@@ -63,6 +70,7 @@ fn test_enqueue_batch_deduplication() {
         discovered_from: None,
     };
     let t2 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://b.com".to_string(),
         depth: 1,
@@ -70,6 +78,7 @@ fn test_enqueue_batch_deduplication() {
         discovered_from: Some(1),
     };
     let t3 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://a.com".to_string(), // duplicate
         depth: 2,
@@ -95,6 +104,7 @@ fn test_enqueue_batch_deduplication() {
 fn test_mark_complete_and_counts() {
     let db = setup_db();
     let t1 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://foo.com".to_string(),
         depth: 0,
@@ -102,6 +112,7 @@ fn test_mark_complete_and_counts() {
         discovered_from: None,
     };
     let t2 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://bar.com".to_string(),
         depth: 0,

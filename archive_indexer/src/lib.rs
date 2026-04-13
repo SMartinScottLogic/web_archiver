@@ -88,6 +88,7 @@ mod tests {
     fn create_test_extracted_page(url: &str) -> ExtractedPage {
         ExtractedPage {
             task: FetchTask {
+                article_id: 1,
                 url_id: 1,
                 url: url.to_string(),
                 depth: 0,
@@ -113,7 +114,8 @@ mod tests {
         let base_page = create_test_extracted_page(url);
         let snapshot = HistoricalSnapshot::from_extracted_page(base_page);
 
-        let mut page = HistoricalPage::new(url.to_string());
+        let url = url.to_string();
+        let mut page = HistoricalPage::new(FetchTask { url, url_id: 0, article_id: 0, depth: 0, priority: 0, discovered_from: None });
         page.add_snapshot(snapshot);
         page
     }

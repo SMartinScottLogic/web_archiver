@@ -7,12 +7,17 @@ use std::{
 use anyhow::Context as _;
 
 use crate::{
-    historical::{HistoricalContentType, HistoricalPage, HistoricalSnapshot},
+    historical::{HistoricalContent, HistoricalContentType, HistoricalPage, HistoricalSnapshot},
     url::canonicalize_url,
 };
 
+pub type ArticleId = i64;
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
+    #[serde(default)]
+    pub article_id: ArticleId,
+
     pub url_id: i64,
     pub url: String,
 
@@ -22,15 +27,6 @@ pub struct FetchTask {
     pub discovered_from: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct FetchedPage {
-    pub task: FetchTask,
-    pub status_code: u16,
-    pub content_type: Option<String>,
-    pub fetch_time: u64,
-    pub body: std::sync::Arc<Vec<u8>>,
-}
-
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ExtractedPage {
     pub task: FetchTask,
@@ -38,14 +34,6 @@ pub struct ExtractedPage {
     pub links: Vec<String>,
     pub metadata: Option<PageMetadata>,
 }
-
-#[derive(Clone, Debug)]
-pub struct DiscoveredLinks {
-    pub parent_url_id: i64,
-    pub links: Vec<String>,
-    pub depth: u32,
-}
-
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PageMetadata {
     pub status_code: u16,
@@ -75,19 +63,22 @@ impl ExtractedPage {
 
 impl From<ExtractedPage> for HistoricalPage {
     fn from(val: ExtractedPage) -> Self {
-        let url = canonicalize_url(&val.task.url).unwrap_or_default();
+        let mut val = val;
+        val.task.url = canonicalize_url(&val.task.url).unwrap_or_default();
         let content_markdown = match val.content_markdown {
-            Some(text) => HistoricalContentType::Literal(text),
-            None => HistoricalContentType::None,
+            Some(text) => vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(text),
+            }],
+            None => Vec::new(),
         };
         let current = HistoricalSnapshot {
-            task: val.task,
             content_markdown,
-            links: Vec::new(),
+            links: HashSet::new(),
             metadata: val.metadata,
         };
         HistoricalPage {
-            url,
+            task: val.task,
             current: Some(current),
             historical_snapshots: VecDeque::new(),
             all_links: HashSet::new(),
@@ -104,6 +95,7 @@ mod tests {
     #[test]
     fn test_fetch_task_clone_eq() {
         let t1 = FetchTask {
+            article_id: 1,
             url_id: 1,
             url: "http://foo.com".to_string(),
             depth: 0,
@@ -129,19 +121,9 @@ mod tests {
         assert_eq!(meta.title.as_deref(), Some("Title"));
     }
 
-    #[test]
-    fn test_discovered_links() {
-        let links = DiscoveredLinks {
-            parent_url_id: 1,
-            links: vec!["a".to_string(), "b".to_string()],
-            depth: 2,
-        };
-        assert_eq!(links.links.len(), 2);
-        assert_eq!(links.depth, 2);
-    }
-
     fn sample_task() -> FetchTask {
         FetchTask {
+            article_id: 1,
             url_id: 42,
             url: "http://example.com".to_string(),
             depth: 1,
@@ -232,8 +214,13 @@ mod tests {
 
         let current = hist.current.unwrap();
 
-        match current.content_markdown {
-            HistoricalContentType::Literal(ref text) => {
+        assert_eq!(current.content_markdown.len(), 1);
+
+        match current.content_markdown.first().unwrap() {
+            HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(text),
+            } => {
                 assert_eq!(text, "markdown");
             }
             _ => panic!("Expected Literal content"),
@@ -258,10 +245,7 @@ mod tests {
         let hist: HistoricalPage = page.into();
         let current = hist.current.unwrap();
 
-        match current.content_markdown {
-            HistoricalContentType::None => {}
-            _ => panic!("Expected None content"),
-        }
+        assert!(current.content_markdown.is_empty());
     }
 
     #[test]
@@ -291,6 +275,7 @@ mod tests {
     fn test_conversion_canonicalizes_url() {
         let page = ExtractedPage {
             task: FetchTask {
+                article_id: 1,
                 url_id: 1,
                 url: "http://example.com/".to_string(), // trailing slash
                 depth: 0,
@@ -305,13 +290,14 @@ mod tests {
         let hist: HistoricalPage = page.into();
 
         // We don't know exact canonical form, but ensure it's not empty
-        assert!(!hist.url.is_empty());
+        assert!(!hist.task.url.is_empty());
     }
 
     #[test]
     fn test_conversion_invalid_url_fallback() {
         let page = ExtractedPage {
             task: FetchTask {
+                article_id: 1,
                 url_id: 1,
                 url: "not a valid url%%%".to_string(),
                 depth: 0,
@@ -326,29 +312,6 @@ mod tests {
         let hist: HistoricalPage = page.into();
 
         // unwrap_or_default() → empty string fallback
-        assert_eq!(hist.url, "");
-    }
-
-    #[test]
-    fn test_fetched_page_equality_arc_body() {
-        let body = std::sync::Arc::new(vec![1, 2, 3]);
-
-        let p1 = FetchedPage {
-            task: sample_task(),
-            status_code: 200,
-            content_type: Some("text/plain".into()),
-            fetch_time: 1,
-            body: body.clone(),
-        };
-
-        let p2 = FetchedPage {
-            task: sample_task(),
-            status_code: 200,
-            content_type: Some("text/plain".into()),
-            fetch_time: 1,
-            body,
-        };
-
-        assert_eq!(p1, p2);
+        assert_eq!(hist.task.url, "");
     }
 }

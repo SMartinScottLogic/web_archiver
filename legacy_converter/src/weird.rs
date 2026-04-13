@@ -81,6 +81,7 @@ fn to_extracted_page(
 
         links: urls,
         task: FetchTask {
+                article_id: 0,
             url_id,
             url: story_url,
             depth: u32::MAX,

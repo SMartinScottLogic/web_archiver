@@ -1,4 +1,5 @@
 use common::DefaultArchiver;
+use common::types::{ArticleId, FetchTask};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -10,12 +11,10 @@ mod frontier;
 mod settings;
 mod storage;
 
-use common::types::{DiscoveredLinks, ExtractedPage, FetchTask, FetchedPage};
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
 use frontier::db::frontier::FrontierDb;
 use frontier::frontier_manager::FrontierManager;
-use storage::archive::storage_loop;
 use tokio::sync::Semaphore;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -23,6 +22,11 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use common::settings::CONFIG_FILE;
 use settings::Config;
+
+use crate::extractor::{DiscoveredLinks, FetchedPage};
+use crate::extractor::router::{Router, Steve};
+
+const MAX_ACTIVE_ARTICLES: usize = 10;
 
 #[tokio::main]
 async fn main() {
@@ -33,7 +37,7 @@ async fn main() {
         .with_thread_names(true) // show thread names
         .with_span_events(FmtSpan::NONE)
         .init();
-    info!("Starting Web Archiver (Week 2 Skeleton)");
+    info!("Starting Web Archiver (Migrated)");
 
     // Load allowed web_archiver config
     let config =
@@ -44,7 +48,7 @@ async fn main() {
     let noop_delay_millis = config.noop_delay_millis;
     let max_concurrent = config.workers;
 
-    let conn = Connection::open("crawler.db").expect("failed to open DB");
+    let conn = Connection::open(&config.db).expect("failed to open DB");
     frontier::db::schema::settings(&conn).expect("failed to set DB performance settings");
     frontier::db::schema::init_schema(&conn).expect("failed to init schema");
     let db_arc = Arc::new(Mutex::new(conn));
@@ -58,7 +62,7 @@ async fn main() {
     // Worker → Extractor
     let (tx_fetched, rx_fetched) = mpsc::channel::<FetchedPage>(100);
     // Extractor → Storage
-    let (tx_extracted, rx_extracted) = mpsc::channel::<ExtractedPage>(100);
+    let (tx_extracted, mut rx_extracted) = mpsc::channel::<Steve>(100);
     // Storage → Frontier
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
@@ -105,8 +109,25 @@ async fn main() {
     // --- 7. Spawn Storage Task ---
     let archiver = DefaultArchiver::new(PathBuf::from(config.archive_dir));
     let storage_db = FrontierDb::new(db_arc.clone());
+    // tokio::spawn(async move {
+    //     storage_loop(archiver, rx_extracted, storage_db).await;
+    // });
+
+    let (tx_done, mut rx_done) = mpsc::channel::<ArticleId>(100);
+
+    let mut router = Router::new(archiver, storage_db, tx_done, MAX_ACTIVE_ARTICLES);
+
+    // Router event loop
     tokio::spawn(async move {
-        storage_loop(archiver, rx_extracted, storage_db).await;
+        while let Some(page) = rx_extracted.recv().await {
+            debug!(recieved = ?page, "route loop");
+            router.route(page).await;
+
+            // optional: clean up finished actors
+            while let Ok(article_id) = rx_done.try_recv() {
+                router.remove(article_id);
+            }
+        }
     });
 
     // --- 8. Wait forever ---

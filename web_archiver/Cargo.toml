@@ -29,3 +29,4 @@ path = "../common"
 
 [dev-dependencies]
 mockall = { workspace = true }
+tracing-test = { workspace = true }

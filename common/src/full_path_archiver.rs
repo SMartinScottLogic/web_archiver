@@ -31,12 +31,51 @@ impl Archiver for FullPathArchiver {
         Ok(path)
     }
 
+    fn canonical_filename(&self, url_str: &str, datetime: i64) -> anyhow::Result<PathBuf> {
+        let url = Url::parse(url_str).with_context(|| format!("Invalid URL: {}", url_str))?;
+
+        // --- Time ---
+        let datetime = DateTime::<Utc>::from_timestamp(datetime, 0)
+            .ok_or_else(|| anyhow::anyhow!("Invalid timestamp: {}", datetime))?;
+
+        // --- Path segments ---
+        let segments: Vec<_> = url
+            .path_segments()
+            .map(|s| s.collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        // --- Base path ---
+        let mut base_path = self.archive_dir.clone();
+
+        let domain = url.domain().unwrap_or("unknown");
+        base_path.push(domain);
+
+        for seg in segments {
+            let clean = sanitize(seg);
+            if !clean.is_empty() {
+                base_path.push(clean);
+            }
+        }
+
+        // --- Hash ---
+        let hash: String = hash_url(url_str);
+
+        // --- Sharding ---
+        base_path.push(&hash[0..2]);
+        base_path.push(&hash[2..4]);
+
+        // --- Filename ---
+        let filename = format!("{}_{}-{:02}.json", hash, datetime.year(), datetime.month());
+        let path = base_path.join(filename);
+        Ok(path)
+    }
+
     fn generate_filename(&self, page: &dyn PageReader) -> anyhow::Result<PathBuf> {
         let current = page
             .current()
             .as_ref()
             .ok_or_else(|| anyhow::Error::msg("Failed to get current snapshot"))?;
-        let url_str = &current.task.url;
+        let url_str = page.url();
 
         let url = Url::parse(url_str).with_context(|| format!("Invalid URL: {}", url_str))?;
 
@@ -121,23 +160,24 @@ impl Archiver for FullPathArchiver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::historical::{HistoricalContentType, HistoricalSnapshot};
+    use crate::historical::HistoricalSnapshot;
     use crate::page::MockPageReader;
     use crate::types::{ExtractedPage, FetchTask, PageMetadata};
     use mockall::predicate::*;
+    use std::collections::HashSet;
     use std::{fs, path::Path};
 
-    fn make_snapshot(url: &str, ts: u64) -> HistoricalSnapshot {
+    fn make_snapshot(_url: &str, ts: u64) -> HistoricalSnapshot {
         HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: url.to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::None,
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: url.to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: Vec::new(),
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".into()),
@@ -166,10 +206,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com/a/b", 1700000000);
+        let url = "https://example.com/a/b";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let path = archiver.generate_filename(&mock).unwrap();
         let path_str = path.to_string_lossy();
@@ -187,10 +229,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com", 1700000000);
+        let url = "https://example.com";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let path = archiver.generate_filename(&mock).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy();
@@ -205,10 +249,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("not a url", 1700000000);
+        let url = "not a url";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let result = archiver.generate_filename(&mock);
 
@@ -221,10 +267,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com", u64::MAX);
+        let url = "https://example.com";
+        let snapshot = make_snapshot(url, u64::MAX);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let result = archiver.generate_filename(&mock);
 
@@ -252,11 +300,13 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com/write", 1700000000);
+        let url = "https://example.com/write";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
 
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         mock.expect_write().times(1).returning(|path| {
             // simulate writing a valid file
@@ -277,14 +327,17 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com/same", 1700000000);
+        let url = "https://example.com/same";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock1 = MockPageReader::new();
         mock1.expect_current().return_const(Some(snapshot.clone()));
+        mock1.expect_url().return_const(url.to_owned());
         mock1.expect_write().returning(|path| {
             fs::create_dir_all(path.parent().unwrap())?;
             let page = ExtractedPage {
                 task: FetchTask {
+                article_id: 0,
                     url_id: 1,
                     url: "https://example.com/same".into(),
                     depth: 0,
@@ -304,6 +357,7 @@ mod tests {
 
         let mut mock2 = MockPageReader::new();
         mock2.expect_current().return_const(Some(snapshot));
+        mock2.expect_url().return_const(url.to_owned());
         mock2.expect_write().returning(|_| Ok(()));
 
         let path2 = archiver.store_page(&mock2).unwrap();
@@ -318,10 +372,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com/a<>b/c:d", 1700000000);
+        let url = "https://example.com/a<>b/c:d";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let path = archiver.generate_filename(&mock).unwrap();
         let path_str = path.to_string_lossy();
@@ -338,10 +394,12 @@ mod tests {
         let base = test_dir();
         let archiver = FullPathArchiver::new(base.clone());
 
-        let snapshot = make_snapshot("https://example.com/shard", 1700000000);
+        let url = "https://example.com/shard";
+        let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(Some(snapshot));
+        mock.expect_url().return_const(url.to_owned());
 
         let path = archiver.generate_filename(&mock).unwrap();
 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use common::types::ExtractedPage;
 
@@ -51,11 +51,17 @@ pub struct MergedSnapshot {
     /// The base page (first page or lowest page number)
     pub base_page: ExtractedPage,
     /// Merged markdown content from all pages in order
-    pub merged_content: String,
+    pub content: Vec<SnapshotPage>,
     /// All links collected from all pages (order preserved from merging)
-    pub merged_links: Vec<String>,
+    pub all_links: HashSet<String>,
     /// Number of pages merged (1 if no merging occurred)
     pub page_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SnapshotPage {
+    pub page: u32,
+    pub content: String,
 }
 
 /// Merges multiple pages with the same URL and fetch month into a single snapshot.
@@ -98,35 +104,29 @@ pub fn merge_pages_by_date(pages: &[PageEntry]) -> HashMap<(u32, u32), MergedSna
 
         // Merge the content and links
         let base_page = entries[0].page.clone();
-        let mut merged_content = String::new();
-        let mut merged_links = Vec::new();
-        let mut seen_links = std::collections::HashSet::new();
+        let mut content = Vec::new();
+        let mut all_links = HashSet::new();
 
-        for (i, entry) in entries.iter().enumerate() {
+        for entry in entries.iter() {
             // Add page content with separator for multi-page
-            if i > 0 {
-                merged_content.push_str("\n\n---\n\n");
-                if let Some(page_num) = entry.page_number {
-                    merged_content.push_str(&format!("## Page {}\n\n", page_num));
-                }
-            }
 
-            if let Some(content) = &entry.page.content_markdown {
-                merged_content.push_str(content);
+            if let Some(page_content) = &entry.page.content_markdown {
+                content.push(SnapshotPage {
+                    page: entry.page_number.unwrap_or(1),
+                    content: page_content.to_owned(),
+                });
             }
 
             // Collect unique links
             for link in &entry.page.links {
-                if seen_links.insert(link.clone()) {
-                    merged_links.push(link.clone());
-                }
+                all_links.insert(link.clone());
             }
         }
 
         let merged = MergedSnapshot {
             base_page,
-            merged_content,
-            merged_links,
+            content,
+            all_links,
             page_count: entries.len(),
         };
 
@@ -150,6 +150,7 @@ mod tests {
         PageEntry {
             page: ExtractedPage {
                 task: FetchTask {
+                article_id: 0,
                     url_id: 1,
                     url: url.to_string(),
                     depth: 0,
@@ -186,8 +187,14 @@ mod tests {
         // fetch_time=100 is 1970-01-01, so year_month should be (1970, 1)
         let snapshot = result.get(&(1970, 1)).unwrap();
         assert_eq!(snapshot.page_count, 1);
-        assert_eq!(snapshot.merged_content, "Page content");
-        assert_eq!(snapshot.merged_links.len(), 1);
+        assert_eq!(
+            snapshot.content,
+            vec![SnapshotPage {
+                page: 1,
+                content: "Page content".to_string()
+            }]
+        );
+        assert_eq!(snapshot.all_links.len(), 1);
     }
 
     #[test]
@@ -214,11 +221,15 @@ mod tests {
 
         let snapshot = result.get(&(1970, 1)).unwrap();
         assert_eq!(snapshot.page_count, 2);
-        assert!(snapshot.merged_content.contains("Page 1 content"));
-        assert!(snapshot.merged_content.contains("Page 2 content"));
-        assert!(snapshot.merged_content.contains("---"));
-        assert!(snapshot.merged_content.contains("## Page 2"));
-        assert_eq!(snapshot.merged_links.len(), 2);
+        assert!(snapshot.content.contains(&SnapshotPage {
+            page: 1,
+            content: "Page 1 content".to_string()
+        }));
+        assert!(snapshot.content.contains(&SnapshotPage {
+            page: 2,
+            content: "Page 2 content".to_string()
+        }));
+        assert_eq!(snapshot.all_links.len(), 2);
     }
 
     #[test]
@@ -245,22 +256,14 @@ mod tests {
         let snapshot = result.get(&(1970, 1)).unwrap();
 
         // Should have 3 unique links (shared appears once, link1 and link2 once each)
-        assert_eq!(snapshot.merged_links.len(), 3);
+        assert_eq!(snapshot.all_links.len(), 3);
         assert!(
             snapshot
-                .merged_links
-                .contains(&"http://shared.com".to_string())
+                .all_links
+                .contains("http://shared.com")
         );
-        assert!(
-            snapshot
-                .merged_links
-                .contains(&"http://link1.com".to_string())
-        );
-        assert!(
-            snapshot
-                .merged_links
-                .contains(&"http://link2.com".to_string())
-        );
+        assert!(snapshot.all_links.contains("http://link1.com"));
+        assert!(snapshot.all_links.contains("http://link2.com"));
     }
 
     #[test]
@@ -273,14 +276,14 @@ mod tests {
                 None,
                 0,
                 "Content January",
-                vec![],
+                Vec::new(),
             ),
             make_page(
                 "http://example.com/article",
                 None,
                 2678400,
                 "Content February",
-                vec![],
+                Vec::new(),
             ),
         ];
 
@@ -299,21 +302,21 @@ mod tests {
                 Some(3),
                 100,
                 "Page 3",
-                vec![],
+                Vec::new(),
             ),
             make_page(
                 "http://example.com/article?page=1",
                 Some(1),
                 100,
                 "Page 1",
-                vec![],
+                Vec::new(),
             ),
             make_page(
                 "http://example.com/article?page=2",
                 Some(2),
                 100,
                 "Page 2",
-                vec![],
+                Vec::new(),
             ),
         ];
 
@@ -321,9 +324,27 @@ mod tests {
         let snapshot = result.get(&(1970, 1)).unwrap();
 
         // Content should be in order: Page 1, Page 2, Page 3
-        let content_pos_1 = snapshot.merged_content.find("Page 1").unwrap();
-        let content_pos_2 = snapshot.merged_content.find("Page 2").unwrap();
-        let content_pos_3 = snapshot.merged_content.find("Page 3").unwrap();
+        let content_pos_1 = snapshot
+            .content
+            .iter()
+            .enumerate()
+            .find(|(_i, v)| v.content.contains("Page 1"))
+            .unwrap()
+            .0;
+        let content_pos_2 = snapshot
+            .content
+            .iter()
+            .enumerate()
+            .find(|(_i, v)| v.content.contains("Page 2"))
+            .unwrap()
+            .0;
+        let content_pos_3 = snapshot
+            .content
+            .iter()
+            .enumerate()
+            .find(|(_i, v)| v.content.contains("Page 3"))
+            .unwrap()
+            .0;
 
         assert!(content_pos_1 < content_pos_2);
         assert!(content_pos_2 < content_pos_3);
@@ -337,14 +358,14 @@ mod tests {
                 Some(1),
                 100,
                 "Page 1",
-                vec![],
+                Vec::new(),
             ),
             make_page(
                 "http://example.com/article?page=2",
                 Some(2),
                 100,
                 "Page 2",
-                vec![],
+                Vec::new(),
             ),
         ];
 

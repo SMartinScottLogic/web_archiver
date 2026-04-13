@@ -6,9 +6,11 @@
 /archive
 /rebuilt_archive
 /test_archive
+/cheese/*
 /config.yaml
 /archive_index.csv
-/crawler.db*
+/*.db.*
+/*.db
 /scratch
 /tarpaulin-report.html
 /cobertura.xml

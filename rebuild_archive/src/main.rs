@@ -10,7 +10,6 @@ mod archive_reader;
 mod historical_serializer;
 mod multi_page_merger;
 mod settings;
-mod url_utils;
 
 use aggregator::ArchiveAggregator;
 use archive_reader::ArchiveReader;
@@ -129,7 +128,7 @@ fn main() -> Result<()> {
         let mut url_to_page_infos: HashMap<String, Vec<&archive_reader::PageInfo>> = HashMap::new();
 
         for page_info in page_infos {
-            let normalized_url = match url_utils::normalize_url_for_merge(&page_info.url) {
+            let normalized_url = match common::url::normalize_url_for_merge(&page_info.url) {
                 Some(n) => n,
                 None => {
                     warn!(url = %page_info.url, "failed to normalize URL");

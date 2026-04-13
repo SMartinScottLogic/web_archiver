@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use common::types::ExtractedPage;
 use common::url::extract_domain;
 
-use crate::url_utils::{extract_page_number, normalize_url_for_merge};
+use common::url::{extract_page, normalize_url_for_merge};
 
 /// A key for grouping pages by (domain, normalized_url)
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -60,7 +60,11 @@ impl ArchiveAggregator {
         };
 
         // Extract page number if present
-        let page_number = extract_page_number(&page.task.url);
+        let page_number = match extract_page(&page.task.url) {
+            common::url::Page::Number(page_number) => Some(page_number),
+            common::url::Page::Text(_) => None,
+            common::url::Page::None => None,
+        };
 
         let key = AggregateKey {
             domain,
@@ -115,6 +119,7 @@ mod tests {
     fn make_page(url: &str, fetch_time: u64) -> ExtractedPage {
         ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: url.to_string(),
                 depth: 0,

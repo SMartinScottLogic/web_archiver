@@ -456,7 +456,7 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ Refactor to accept `Box<dyn PageReader>`
    - ✓ Update embedding generation to handle HistoricalPage snapshots
 
-3d. **Step 3: Migrate remaining components** (read-only) — IN PROGRESS (2026-04-04)
+3d. **Step 3: Migrate remaining components** (read-only) — COMPLETE (2026-04-06)
    Quality Gate to apply:
    - ✓ `cargo check` for search/indexing layers must pass
    - ✓ All tests pass (existing + new search accuracy tests)
@@ -474,10 +474,10 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ hybrid_search
    - ✓ legacy-converter
 
-3e. **Step 4: Migrate web_archiver (crawler)** (write path) — NOT STARTED
+3e. **Step 4: Migrate web_archiver (crawler)** (write path) — IN PROGRESS - 2026-APR-13
    Quality Gate to apply:
-   - `cargo check -p web_archiver` must pass
-   - All web_archiver tests pass (existing + new end-to-end tests)
+   - ✓ `cargo check -p web_archiver` must pass
+   - ✓ All web_archiver tests pass (existing + new end-to-end tests)
    - Full pipeline test: crawl → store → index → search
    - Plan updated and changes committed to git
    

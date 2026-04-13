@@ -3,7 +3,8 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use common::historical::{HistoricalPage, HistoricalSnapshot};
+use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
+use common::types::FetchTask;
 use common::url::url_to_filename;
 
 use chrono::offset::Utc;
@@ -52,25 +53,55 @@ impl HistoricalSerializer {
         }
     }
 
-    /// Converts a MergedSnapshot back to an ExtractedPage-like structure suitable for HistoricalSnapshot.
-    /// The merged_content replaces the original content_markdown.
+    // /// Converts a MergedSnapshot back to an ExtractedPage-like structure suitable for HistoricalSnapshot.
+    // /// The merged_content replaces the original content_markdown.
+    // fn merged_snapshot_to_historical_snapshot_old(
+    //     merged_snapshot: &MergedSnapshot,
+    //     year_month: (u32, u32),
+    // ) -> HistoricalSnapshot {
+    //     let mut base_page = merged_snapshot.base_page.clone();
+    //     // Replace content with merged content
+    //     base_page.content_markdown = Some(merged_snapshot.content.clone());
+    //     // Replace links with merged links
+    //     base_page.links = merged_snapshot.all_links.iter().cloned().collect();
+    //     // Update fetch_time metadata to reflect the month
+    //     if let Some(ref mut metadata) = base_page.metadata {
+    //         // Keep the original fetch_time but mark it as a merged snapshot
+    //         // The year_month tuple is implicit in the grouping
+    //         metadata.fetch_time = timestamp_to_year_month_inverse(year_month);
+    //     }
+
+    //     HistoricalSnapshot::from_extracted_page(base_page)
+    // }
+
     fn merged_snapshot_to_historical_snapshot(
         merged_snapshot: &MergedSnapshot,
         year_month: (u32, u32),
     ) -> HistoricalSnapshot {
-        let mut base_page = merged_snapshot.base_page.clone();
-        // Replace content with merged content
-        base_page.content_markdown = Some(merged_snapshot.merged_content.clone());
-        // Replace links with merged links
-        base_page.links = merged_snapshot.merged_links.clone();
-        // Update fetch_time metadata to reflect the month
-        if let Some(ref mut metadata) = base_page.metadata {
-            // Keep the original fetch_time but mark it as a merged snapshot
-            // The year_month tuple is implicit in the grouping
-            metadata.fetch_time = timestamp_to_year_month_inverse(year_month);
+        let content_markdown = merged_snapshot
+            .content
+            .iter()
+            .map(|snapshot_page| HistoricalContent {
+                page: snapshot_page.page,
+                content: common::historical::HistoricalContentType::Literal(
+                    snapshot_page.content.clone(),
+                ),
+            })
+            .collect();
+        let links = merged_snapshot.all_links.iter().cloned().collect();
+        let metadata = merged_snapshot
+            .base_page
+            .metadata
+            .clone()
+            .map(|mut metadata| {
+                metadata.fetch_time = timestamp_to_year_month_inverse(year_month);
+                metadata
+            });
+        HistoricalSnapshot {
+            content_markdown,
+            links,
+            metadata,
         }
-
-        HistoricalSnapshot::from_extracted_page(base_page)
     }
 
     /// Serialize all historical pages to the target directory.
@@ -84,7 +115,8 @@ impl HistoricalSerializer {
 
         for (key, merged_snapshots) in aggregates {
             // Create a HistoricalPage for this domain+URL combination
-            let mut page = HistoricalPage::new(key.normalized_url.clone());
+            let fetch_task = FetchTask { url: key.normalized_url.clone(), article_id: 0, url_id: 0, depth: 0, priority: 0, discovered_from: None };
+            let mut page = HistoricalPage::new(fetch_task);
 
             // Add each merged snapshot to the historical page
             for merged_snapshot in merged_snapshots.iter().sorted_by_cached_key(|h| {
@@ -131,6 +163,10 @@ impl HistoricalSerializer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use crate::multi_page_merger::SnapshotPage;
+
     use super::*;
     use common::{historical::HistoricalContentType, types::FetchTask, url::hash_url};
 
@@ -206,6 +242,7 @@ mod tests {
 
         let base_page = common::types::ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "http://example.com/page".to_string(),
                 depth: 1,
@@ -225,11 +262,14 @@ mod tests {
 
         let merged_snapshot = MergedSnapshot {
             base_page,
-            merged_content: "Merged content from pages 1 and 2".to_string(),
-            merged_links: vec![
+            content: vec![SnapshotPage {
+                page: 1,
+                content: "Merged content from pages 1 and 2".to_string(),
+            }],
+            all_links: HashSet::from([
                 "http://link1.com".to_string(),
                 "http://link2.com".to_string(),
-            ],
+            ]),
             page_count: 2,
         };
 
@@ -240,10 +280,15 @@ mod tests {
 
         assert_eq!(
             snapshot.content_markdown,
-            HistoricalContentType::Literal("Merged content from pages 1 and 2".to_string())
+            vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "Merged content from pages 1 and 2".to_string()
+                )
+            }]
         );
         assert_eq!(snapshot.links.len(), 2);
-        assert!(snapshot.links.contains(&"http://link1.com".to_string()));
-        assert!(snapshot.links.contains(&"http://link2.com".to_string()));
+        assert!(snapshot.links.contains("http://link1.com"));
+        assert!(snapshot.links.contains("http://link2.com"));
     }
 }

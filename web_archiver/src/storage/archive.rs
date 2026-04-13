@@ -1,12 +1,12 @@
 use crate::frontier::db::frontier::FrontierDb;
 use anyhow::Result;
-use common::{Archiver, types::ExtractedPage};
+use common::{Archiver, historical::HistoricalPage};
 use tokio::sync::mpsc::Receiver;
 use tracing::{error, info};
 
 pub async fn storage_loop(
     archiver: impl Archiver,
-    mut rx: Receiver<ExtractedPage>,
+    mut rx: Receiver<HistoricalPage>,
     db: FrontierDb,
 ) {
     while let Some(page) = rx.recv().await {
@@ -24,7 +24,7 @@ pub async fn storage_loop(
     }
 }
 
-fn store_page(archiver: &impl Archiver, page: &ExtractedPage) -> Result<()> {
+fn store_page(archiver: &impl Archiver, page: &HistoricalPage) -> Result<()> {
     let outpath = archiver.store_page(page)?;
     info!("Stored page: {} -> {:?}", page.task.url, outpath);
     Ok(())
@@ -34,28 +34,40 @@ fn store_page(archiver: &impl Archiver, page: &ExtractedPage) -> Result<()> {
 mod tests {
     use super::*;
     use common::MockArchiver;
-    use common::types::{ExtractedPage, FetchTask, PageMetadata};
+    use common::historical::{HistoricalContent, HistoricalSnapshot};
+    use common::types::{FetchTask, PageMetadata};
+    use std::collections::{HashSet, VecDeque};
     use std::path::PathBuf;
 
     #[test]
     fn test_store_page_creates_file() {
-        let page = ExtractedPage {
+        let page = HistoricalPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "http://foo.com/test".to_string(),
                 depth: 0,
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: Some("content".to_string()),
-            links: vec![],
-            metadata: Some(PageMetadata {
-                status_code: 200,
-                content_type: Some("text/html".to_string()),
-                fetch_time: 0,
-                title: Some("Test".to_string()),
-                document_metadata: Some(vec![]),
+            current: Some(HistoricalSnapshot {
+                content_markdown: vec![HistoricalContent {
+                    page: 1,
+                    content: common::historical::HistoricalContentType::Literal(
+                        "content".to_string(),
+                    ),
+                }],
+                links: HashSet::new(),
+                metadata: Some(PageMetadata {
+                    status_code: 200,
+                    content_type: Some("text/html".to_string()),
+                    fetch_time: 0,
+                    title: Some("Test".to_string()),
+                    document_metadata: Some(vec![]),
+                }),
             }),
+            historical_snapshots: VecDeque::new(),
+            all_links: HashSet::new(),
         };
         let mut archiver = MockArchiver::new();
         archiver
@@ -116,6 +128,11 @@ mod tests {
             )
             .unwrap()
         };
+
+        // Insert a test article
+        let article_id = {
+            0
+        };
         {
             let conn = db.conn.lock().unwrap();
             conn.execute(
@@ -126,23 +143,33 @@ mod tests {
 
         // Setup channel and send ExtractedPage
         let (tx, rx) = mpsc::channel(1);
-        let page = ExtractedPage {
+        let page = HistoricalPage {
             task: FetchTask {
+                article_id,
                 url_id,
                 url: url.to_string(),
                 depth: 0,
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: Some("content".to_string()),
-            links: vec![],
-            metadata: Some(PageMetadata {
-                status_code: 200,
-                content_type: Some("text/html".to_string()),
-                fetch_time: 0,
-                title: Some("Test".to_string()),
-                document_metadata: Some(vec![]),
+            current: Some(HistoricalSnapshot {
+                content_markdown: vec![HistoricalContent {
+                    page: 1,
+                    content: common::historical::HistoricalContentType::Literal(
+                        "content".to_string(),
+                    ),
+                }],
+                links: HashSet::new(),
+                metadata: Some(PageMetadata {
+                    status_code: 200,
+                    content_type: Some("text/html".to_string()),
+                    fetch_time: 0,
+                    title: Some("Test".to_string()),
+                    document_metadata: Some(vec![]),
+                }),
             }),
+            all_links: HashSet::new(),
+            historical_snapshots: VecDeque::new(),
         };
         tx.send(page).await.unwrap();
         drop(tx); // Close channel

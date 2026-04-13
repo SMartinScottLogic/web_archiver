@@ -83,14 +83,14 @@ pub fn ensure_complete_in_db(page: &dyn PageReader, conn: &mut Connection) -> Re
         .current()
         .as_ref()
         .ok_or_else(|| anyhow::Error::msg("failed to get current snapshot"))?;
-    let task = &current.task;
+    let task = page.task();
     let fetch_time = current
         .metadata
         .as_ref()
         .map(|metadata| metadata.fetch_time)
         .unwrap_or_default() as i64;
 
-    let url = &task.url;
+    let url = page.url();
     let tx = conn.transaction()?;
     let inserted = tx.execute(
         "INSERT OR IGNORE INTO urls (url, domain, discovered_at) VALUES (?1, ?2, ?3)",
@@ -119,7 +119,7 @@ pub fn ensure_complete_in_db(page: &dyn PageReader, conn: &mut Connection) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::historical::{HistoricalContentType, HistoricalSnapshot};
+    use common::historical::{HistoricalContent, HistoricalContentType, HistoricalSnapshot};
     use common::types::FetchTask;
     use rusqlite::Connection;
     use std::collections::{HashSet, VecDeque};
@@ -131,18 +131,21 @@ mod tests {
     use common::page::MockPageReader;
     use mockall::predicate::*;
 
-    fn make_snapshot(url: &str) -> HistoricalSnapshot {
+    fn make_snapshot(_url: &str) -> HistoricalSnapshot {
         HistoricalSnapshot {
-            task: FetchTask {
-                url: url.to_string(),
-                url_id: 123,
-                priority: 1,
-                depth: 2,
-                discovered_from: Some(0),
-            },
+            // task: FetchTask {
+            //     url: url.to_string(),
+            //     url_id: 123,
+            //     priority: 1,
+            //     depth: 2,
+            //     discovered_from: Some(0),
+            // },
             metadata: None,
-            content_markdown: HistoricalContentType::Literal("Hello World".into()),
-            links: vec![],
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Hello World".into()),
+            }],
+            links: HashSet::new(),
         }
     }
 
@@ -164,6 +167,7 @@ mod tests {
         // Minimal valid JSON depends on your real structs
         let content = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 0,
                 url: "https://example.com/".to_string(),
                 depth: 0,
@@ -202,6 +206,7 @@ mod tests {
 
         let content = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 0,
                 url: "https://example.com/".to_string(),
                 depth: 0,
@@ -238,17 +243,27 @@ mod tests {
         let path = dir.path().join("file.json");
 
         let content = HistoricalPage {
-            url: "https://example.com/".to_string(),
+            task: FetchTask {
+                article_id: 0,
+                url_id: 0,
+                url: "https://example.com/".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
             current: Some(HistoricalSnapshot {
-                task: FetchTask {
-                    url_id: 0,
-                    url: "example.com".to_string(),
-                    depth: 0,
-                    priority: 0,
-                    discovered_from: None,
-                },
-                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
-                links: Vec::new(),
+                // task: FetchTask {
+                //     url_id: 0,
+                //     url: "https://example.com/".to_string(),
+                //     depth: 0,
+                //     priority: 0,
+                //     discovered_from: None,
+                // },
+                content_markdown: vec![HistoricalContent {
+                    page: 1,
+                    content: HistoricalContentType::Literal("Example content".to_string()),
+                }],
+                links: HashSet::new(),
                 metadata: None,
             }),
             historical_snapshots: VecDeque::new(),
@@ -281,17 +296,28 @@ mod tests {
         let dst = dir.path().join("new.json");
 
         let content = HistoricalPage {
-            url: "https://example.com/".to_string(),
+            //url: "https://example.com/".to_string(),
+            task: FetchTask {
+                article_id: 0,
+                url_id: 0,
+                url: "https://example.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
             current: Some(HistoricalSnapshot {
-                task: FetchTask {
-                    url_id: 0,
-                    url: "example.com".to_string(),
-                    depth: 0,
-                    priority: 0,
-                    discovered_from: None,
-                },
-                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
-                links: Vec::new(),
+                // task: FetchTask {
+                //     url_id: 0,
+                //     url: "example.com".to_string(),
+                //     depth: 0,
+                //     priority: 0,
+                //     discovered_from: None,
+                // },
+                content_markdown: vec![HistoricalContent {
+                    page: 1,
+                    content: HistoricalContentType::Literal("Example content".to_string()),
+                }],
+                links: HashSet::new(),
                 metadata: None,
             }),
             historical_snapshots: VecDeque::new(),
@@ -325,17 +351,28 @@ mod tests {
         let dst = dir.path().join("new.json");
 
         let content = HistoricalPage {
-            url: "https://example.com/".to_string(),
+            //url: "https://example.com/".to_string(),
+            task: FetchTask {
+                article_id: 0,
+                url_id: 0,
+                url: "https://example.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
             current: Some(HistoricalSnapshot {
-                task: FetchTask {
-                    url_id: 0,
-                    url: "example.com".to_string(),
-                    depth: 0,
-                    priority: 0,
-                    discovered_from: None,
-                },
-                content_markdown: HistoricalContentType::Literal("Example content".to_string()),
-                links: Vec::new(),
+                // task: FetchTask {
+                //     url_id: 0,
+                //     url: "example.com".to_string(),
+                //     depth: 0,
+                //     priority: 0,
+                //     discovered_from: None,
+                // },
+                content_markdown: vec![HistoricalContent {
+                    page: 1,
+                    content: HistoricalContentType::Literal("Example content".to_string()),
+                }],
+                links: HashSet::new(),
                 metadata: None,
             }),
             historical_snapshots: VecDeque::new(),
@@ -391,6 +428,8 @@ mod tests {
         let snapshot = make_snapshot("https://example.com");
 
         page.expect_current().return_const(Some(snapshot.clone()));
+        page.expect_task().return_const(FetchTask { article_id: 0, url_id: 0, url: "task url - unused".to_string(), depth: 0, priority: 0, discovered_from: None });
+        page.expect_url().return_const("https://example.com".to_string());
 
         ensure_complete_in_db(&page, &mut conn).unwrap();
 
@@ -435,6 +474,8 @@ mod tests {
         let snapshot = make_snapshot("https://example.com");
 
         page.expect_current().return_const(Some(snapshot.clone()));
+        page.expect_task().return_const(FetchTask { article_id: 0, url_id: 0, url: "task url - unused".to_string(), depth: 0, priority: 0, discovered_from: None });
+        page.expect_url().return_const("https://example.com".to_string());
 
         ensure_complete_in_db(&page, &mut conn).unwrap();
 

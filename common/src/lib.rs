@@ -15,6 +15,7 @@ pub mod url;
 
 #[automock]
 pub trait Archiver {
+    fn canonical_filename(&self, url_str: &str, datetime: i64) -> anyhow::Result<PathBuf>;
     fn generate_filename(&self, page: &dyn page::PageReader) -> anyhow::Result<PathBuf>;
     fn store_page(&self, page: &dyn page::PageReader) -> anyhow::Result<PathBuf>;
 }

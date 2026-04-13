@@ -1,7 +1,9 @@
 use anyhow::Result;
-use common::types::{FetchTask, FetchedPage};
+use common::types::{FetchTask};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
+
+use crate::extractor::FetchedPage;
 
 pub async fn worker_loop_single(task: FetchTask, user_agent: &str, tx: Sender<FetchedPage>) {
     let client = reqwest::Client::builder()
@@ -62,6 +64,7 @@ mod tests {
 
         // Use a known good URL for testing (httpbin.org is reliable for tests)
         let task = FetchTask {
+            article_id: 0,
             url_id: 1,
             url: "https://httpbin.org/html".to_string(),
             depth: 0,

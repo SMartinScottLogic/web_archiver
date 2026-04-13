@@ -623,6 +623,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "html2md",
+ "itertools",
  "mockall",
  "oxidelta",
  "readability",
@@ -5099,6 +5100,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
  "url",
 ]
 

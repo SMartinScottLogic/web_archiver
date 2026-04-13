@@ -1,9 +1,12 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use mockall::automock;
 
-use crate::historical::{HistoricalContentType, HistoricalPage, HistoricalSnapshot};
-use crate::types::ExtractedPage;
+use crate::historical::{
+    HistoricalContent, HistoricalContentType, HistoricalPage, HistoricalSnapshot,
+};
+use crate::types::{ExtractedPage, FetchTask};
 
 /// A trait for reading page data, abstracting over both ExtractedPage and HistoricalPage.
 /// This enables crates to work with either type without knowing which concrete implementation they have.
@@ -12,6 +15,8 @@ use crate::types::ExtractedPage;
 pub trait PageReader {
     /// Get the canonical URL for this page
     fn url(&self) -> &str;
+    /// Get the fetch details for this page
+    fn task(&self) -> &FetchTask;
 
     /// Set the canonical URL for this page
     fn set_url(&mut self, url: &str);
@@ -30,7 +35,7 @@ pub trait PageReader {
     /// Get all unique links discovered across all snapshots
     /// For ExtractedPage: returns links from the single snapshot
     /// For HistoricalPage: returns the consolidated deduplicated links (as sorted Vec)
-    fn all_links(&self) -> Vec<String>;
+    fn all_links(&self) -> HashSet<String>;
 
     /// Get the fetch time of the earliest/oldest snapshot
     fn fetch_time(&self) -> u64;
@@ -45,6 +50,10 @@ pub trait PageReader {
 impl PageReader for ExtractedPage {
     fn url(&self) -> &str {
         &self.task.url
+    }
+
+    fn task(&self) -> &FetchTask {
+        &self.task
     }
 
     fn set_url(&mut self, url: &str) {
@@ -66,8 +75,8 @@ impl PageReader for ExtractedPage {
         &[]
     }
 
-    fn all_links(&self) -> Vec<String> {
-        self.links.clone()
+    fn all_links(&self) -> HashSet<String> {
+        self.links.iter().cloned().collect()
     }
 
     fn fetch_time(&self) -> u64 {
@@ -86,11 +95,16 @@ impl PageReader for ExtractedPage {
 
 impl PageReader for HistoricalPage {
     fn url(&self) -> &str {
-        &self.url
+        &self.task.url
+    }
+
+    fn task(&self) -> &FetchTask {
+        &self.task
     }
 
     fn set_url(&mut self, url: &str) {
-        self.url = url.to_string();
+        self.task.url = url.to_string();
+        // TODO what to do about task.url_id, etc?
     }
 
     fn current(&self) -> &Option<HistoricalSnapshot> {
@@ -105,11 +119,9 @@ impl PageReader for HistoricalPage {
         self.historical_snapshots.make_contiguous()
     }
 
-    fn all_links(&self) -> Vec<String> {
+    fn all_links(&self) -> HashSet<String> {
         // Return sorted links (consistent with serialization)
-        let mut links: Vec<_> = self.all_links.iter().cloned().collect();
-        links.sort();
-        links
+        self.all_links.clone()
     }
 
     fn fetch_time(&self) -> u64 {
@@ -145,12 +157,15 @@ pub trait ExtractedPageExt {
 impl ExtractedPageExt for ExtractedPage {
     fn as_snapshots(&self) -> Vec<HistoricalSnapshot> {
         vec![HistoricalSnapshot {
-            task: self.task.clone(),
+            //task: self.task.clone(),
             content_markdown: match self.content_markdown.as_ref() {
-                Some(md) => HistoricalContentType::Literal(md.to_owned()),
-                None => HistoricalContentType::None,
+                Some(md) => vec![HistoricalContent {
+                    page: 1,
+                    content: HistoricalContentType::Literal(md.to_owned()),
+                }],
+                None => Vec::new(),
             },
-            links: self.links.clone(),
+            links: self.links.iter().cloned().collect(),
             metadata: self.metadata.clone(),
         }]
     }
@@ -158,6 +173,8 @@ impl ExtractedPageExt for ExtractedPage {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use super::*;
     use crate::types::{FetchTask, PageMetadata};
 
@@ -165,6 +182,7 @@ mod tests {
     fn test_extracted_page_reader_basic() {
         let page = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
@@ -195,6 +213,7 @@ mod tests {
     fn test_extracted_page_reader_no_metadata() {
         let page = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
@@ -212,21 +231,24 @@ mod tests {
 
     #[test]
     fn test_historical_page_reader_basic() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(FetchTask { article_id: 0, url_id: 0, url: "https://example.com".to_string(), depth: 0, priority: 0, discovered_from: None });
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content".to_string()),
-            links: vec![
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content".to_string()),
+            }],
+            links: HashSet::from([
                 "https://link1.com".to_string(),
                 "https://link2.com".to_string(),
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -247,19 +269,23 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn test_historical_page_reader_multiple_snapshots() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(FetchTask { article_id: 0, url_id: 0, url: "https://example.com".to_string(), depth: 0, priority: 0, discovered_from: None });
 
         let snapshot1 = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("content version 1".to_string()),
-            links: vec!["https://link1.com".to_string()],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("content version 1".to_string()),
+            }],
+            links: HashSet::from(["https://link1.com".to_string()]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -270,15 +296,18 @@ mod tests {
         };
 
         let snapshot2 = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("content version 2".to_string()),
-            links: vec!["https://link2.com".to_string()],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("content version Two, with enhanced details".to_string()),
+            }],
+            links: HashSet::from(["https://link2.com".to_string()]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -302,6 +331,7 @@ mod tests {
     fn test_extracted_page_as_snapshots() {
         let page = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,

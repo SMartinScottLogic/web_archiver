@@ -52,3 +52,4 @@ oxidelta = "0.1.4"    # VCDIFF (RFC 3284) delta encoder/decoder — Rust reimple
 base64 = "0.22.1"                # encodes and decodes base64 as bytes or utf8
 zstd = "0.13"
 #rust-bert = "0.23.0"
+itertools = "0.14.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.

@@ -17,8 +17,7 @@ tracing-subscriber = { workspace = true }
 walkdir = { workspace = true }
 figment = { workspace = true }
 url = { workspace = true }
-
-itertools = "0.14.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.
+itertools = { workspace = true }
 
 [dependencies.common]
 path = "../common"

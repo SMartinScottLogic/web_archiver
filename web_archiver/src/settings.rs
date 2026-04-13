@@ -15,6 +15,7 @@ pub struct Config {
     pub seed_urls: Vec<String>,
     pub noop_delay_millis: u64,
     pub user_agent: String,
+    pub db: String,
 }
 
 /// Command line arguments
@@ -24,28 +25,33 @@ pub struct Config {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Directory where document archive is stored
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "Archive")]
     #[serde(skip_serializing_if = "Option::is_none")]
     archive_dir: Option<String>,
 
     /// Delay in ms for frontier manager idle loop
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "Crawl")]
     #[serde(skip_serializing_if = "Option::is_none")]
     noop_delay_millis: Option<u64>,
 
     /// Number of concurrent fetch workers
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "Crawl")]
     #[serde(skip_serializing_if = "Option::is_none")]
     workers: Option<usize>,
 
     /// User Agent to supply for fetches
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "Crawl")]
     #[serde(skip_serializing_if = "Option::is_none")]
     user_agent: Option<String>,
 
     /// Crawl seeds
     #[serde(skip_serializing_if = "Option::is_none")]
     seed_urls: Option<Vec<String>>,
+
+    /// Database for queue and metadata store
+    #[arg(short, long, help_heading = "Archive")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    db: Option<String>,
 }
 
 impl Default for Config {
@@ -57,6 +63,7 @@ impl Default for Config {
             seed_urls: Default::default(),
             noop_delay_millis: 500,
             user_agent: "Week1Crawler/0.1".to_string(),
+            db: "crawler.db".to_string(),
         }
     }
 }

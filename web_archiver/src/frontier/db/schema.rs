@@ -14,9 +14,15 @@ pub fn settings(conn: &Connection) -> Result<()> {
 pub fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
+        CREATE TABLE IF NOT EXISTS articles (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE
+        );
+
         CREATE TABLE IF NOT EXISTS urls (
             id INTEGER PRIMARY KEY,
             url TEXT NOT NULL UNIQUE,
+            article_id INTEGER NOT NULL,
             domain TEXT NOT NULL,
             discovered_at INTEGER NOT NULL
         );
@@ -51,6 +57,9 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             target_url_id INTEGER NOT NULL,
             discovered_at INTEGER NOT NULL
         );
+
+        CREATE INDEX IF NOT EXISTS idx_articles_url
+        ON articles(url);
 
         CREATE INDEX IF NOT EXISTS idx_frontier_status_priority
         ON frontier(status, priority DESC);

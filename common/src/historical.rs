@@ -2,7 +2,8 @@ use anyhow::Context as _;
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize, Serializer};
 use simhash::simhash;
-use std::collections::{HashSet, VecDeque};
+use tracing::debug;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
 
@@ -13,16 +14,20 @@ use crate::types::{ExtractedPage, FetchTask, PageMetadata};
 /// Wraps all fields from ExtractedPage to preserve complete historical context.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HistoricalSnapshot {
-    /// The fetch task metadata (url_id, url, depth, priority, discovered_from)
-    pub task: FetchTask,
     /// Markdown-formatted content from the page
-    pub content_markdown: HistoricalContentType,
+    pub content_markdown: Vec<HistoricalContent>,
     /// All links discovered on this snapshot
     /// Serialization is skipped as links are consolidated into HistoricalPage::all_links
     #[serde(skip)]
-    pub links: Vec<String>,
+    pub links: HashSet<String>,
     /// Metadata about the fetch (status code, content type, fetch time, title, etc.)
     pub metadata: Option<PageMetadata>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HistoricalContent {
+    pub content: HistoricalContentType,
+    pub page: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -38,8 +43,10 @@ pub enum HistoricalContentType {
 /// Consolidates all snapshots for a given URL indexed by fetch time.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HistoricalPage {
-    /// The consolidated URL (normalized, without page params)
-    pub url: String,
+    /// The fetch task metadata (url_id, url, depth, priority, discovered_from)
+    pub task: FetchTask,
+    // /// The consolidated URL (normalized, without page params)
+    // pub url: String,
     /// The current (most up to date) snapshot for this URL
     pub current: Option<HistoricalSnapshot>,
     /// Historical snapshots for this URL, sorted by fetch_time (ascending)
@@ -55,9 +62,9 @@ pub struct HistoricalPage {
 
 impl HistoricalPage {
     /// Create a new HistoricalPage with default empty state
-    pub fn new(url: String) -> Self {
+    pub fn new(task: FetchTask) -> Self {
         Self {
-            url,
+            task,
             current: None,
             historical_snapshots: VecDeque::new(),
             all_links: HashSet::new(),
@@ -67,17 +74,85 @@ impl HistoricalPage {
     fn delta(
         current: &HistoricalSnapshot,
         snapshot: &HistoricalSnapshot,
-    ) -> anyhow::Result<(u32, String)> {
-        let last = match &current.content_markdown {
-            HistoricalContentType::None => "",
-            HistoricalContentType::Literal(t) => t.as_str(),
-            HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
-        };
-        let new = match &snapshot.content_markdown {
-            HistoricalContentType::None => "",
-            HistoricalContentType::Literal(t) => t.as_str(),
-            HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
-        };
+    ) -> anyhow::Result<Vec<(u32, (u32, String))>> {
+        let current = current
+            .content_markdown
+            .iter()
+            .fold(HashMap::new(), |mut acc, v| {
+                let text = match &v.content {
+                    HistoricalContentType::None => "",
+                    HistoricalContentType::Literal(t) => t.as_str(),
+                    HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
+                };
+                assert!(acc.insert(v.page, text).is_none());
+                acc
+            });
+        let snapshot = snapshot
+            .content_markdown
+            .iter()
+            .fold(HashMap::new(), |mut acc, v| {
+                let text = match &v.content {
+                    HistoricalContentType::None => "",
+                    HistoricalContentType::Literal(t) => t.as_str(),
+                    HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
+                };
+                assert!(acc.insert(v.page, text).is_none());
+                acc
+            });
+        let max_page = std::cmp::max(
+            current.keys().cloned().max().unwrap_or_default(),
+            snapshot.keys().cloned().max().unwrap_or_default(),
+        );
+        let min_page = std::cmp::min(
+            current.keys().cloned().min().unwrap_or_default(),
+            snapshot.keys().cloned().min().unwrap_or_default(),
+        );
+        let mut deltas = Vec::new();
+        for page in min_page..=max_page {
+            let c = current.get(&page).copied().unwrap_or_default();
+            let s = snapshot.get(&page).copied().unwrap_or_default();
+            let delta = Self::delta_page(c, s)?;
+            debug!(c, s, page, ?delta, "page delta");
+            deltas.push((page, delta));
+        }
+        Ok(deltas)
+        // current.content_markdown.iter().zip_longest(snapshot.content_markdown.iter())
+        // .map(|a| {
+        //     match a {
+        //         itertools::EitherOrBoth::Both(c, s) => todo!(),
+        //         itertools::EitherOrBoth::Left(_) => todo!(),
+        //         itertools::EitherOrBoth::Right(_) => todo!(),
+        //     }
+        //     let last = match c {
+
+        //     };
+        // })
+        // .collect();
+        // let last = match &current.content_markdown {
+        //     HistoricalContentType::None => "",
+        //     HistoricalContentType::Literal(t) => t.as_str(),
+        //     HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
+        // };
+        // let new = match &snapshot.content_markdown {
+        //     HistoricalContentType::None => "",
+        //     HistoricalContentType::Literal(t) => t.as_str(),
+        //     HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
+        // };
+        // let h1 = simhash(last);
+        // let h2 = simhash(new);
+        // let distance = simhash::hamming_distance(h1, h2);
+        // let mut delta = Vec::new();
+        // oxidelta::compress::encoder::encode_all(
+        //     &mut delta,
+        //     new.as_bytes(),
+        //     last.as_bytes(),
+        //     Default::default(),
+        // )?;
+        // let delta = general_purpose::STANDARD.encode(delta);
+        // Ok((distance, delta))
+    }
+
+    fn delta_page(last: &str, new: &str) -> anyhow::Result<(u32, String)> {
         let h1 = simhash(last);
         let h2 = simhash(new);
         let distance = simhash::hamming_distance(h1, h2);
@@ -109,20 +184,35 @@ impl HistoricalPage {
                 .map(|m| m.fetch_time)
                 .unwrap_or_default(),
         };
-        assert!(snapshot_fetch_time > current_fetch_time);
+        assert!(snapshot_fetch_time > current_fetch_time, "snapshot_fetch_time: {}, current_fetch_time: {}", snapshot_fetch_time, current_fetch_time);
         // Add snapshot's links to the set (deduplication is automatic), with paging stripped
         for link in &snapshot.links {
             let normalized_link = crate::url::remove_pagination_params(link);
             self.all_links.insert(normalized_link);
         }
         if let Some(current) = &self.current {
-            let (distance, delta) = Self::delta(current, &snapshot).unwrap();
-            if distance < 5 {
+            let deltas = Self::delta(current, &snapshot).unwrap();
+            let max_distance = deltas
+                .iter()
+                .map(|(_page, (distance, _delta))| distance)
+                .cloned()
+                .max()
+                .unwrap_or_default();
+            if max_distance < 5 {
                 // Replace 'current'
+                debug!("snapshots very similar, replacing current: {}; {:?} | {:?} | {:?}", max_distance, deltas, current, snapshot);
             } else {
                 // Old current becomes a delta
                 let mut current = current.to_owned();
-                current.content_markdown = HistoricalContentType::Delta(delta);
+                let mut delta = deltas
+                    .into_iter()
+                    .map(|(page, (_distance, delta))| HistoricalContent {
+                        page,
+                        content: HistoricalContentType::Delta(delta),
+                    })
+                    .collect::<Vec<_>>();
+                delta.sort_by_cached_key(|c| c.page);
+                current.content_markdown = delta;
                 // Add snapshot, maintaining temporal order
                 self.historical_snapshots.push_front(current);
             }
@@ -164,12 +254,15 @@ impl HistoricalSnapshot {
     /// Convert a single ExtractedPage into a HistoricalSnapshot
     pub fn from_extracted_page(page: ExtractedPage) -> Self {
         Self {
-            task: page.task,
+            //task: page.task,
             content_markdown: match page.content_markdown {
-                Some(t) => HistoricalContentType::Literal(t),
-                None => HistoricalContentType::None,
+                Some(t) => vec![HistoricalContent {
+                    page: 1,
+                    content: HistoricalContentType::Literal(t),
+                }],
+                None => Vec::new(),
             },
-            links: page.links,
+            links: page.links.into_iter().collect(),
             metadata: page.metadata,
         }
     }
@@ -204,28 +297,34 @@ where
 mod tests {
     use super::*;
 
+    fn default_task(url: &str) -> FetchTask {
+        FetchTask { article_id: 0, url_id: 0, url: url.to_string(), depth: 0, priority: 0, discovered_from: None }
+    }
     #[test]
     fn test_historical_page_creation() {
-        let page = HistoricalPage::new("https://example.com".to_string());
-        assert_eq!(page.url, "https://example.com");
+        let page = HistoricalPage::new(default_task("https://example.com"));
+        assert_eq!(page.task.url, "https://example.com");
         assert_eq!(page.historical_snapshots.len(), 0);
         assert_eq!(page.all_links.len(), 0);
     }
 
     #[test]
     fn test_add_snapshot() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content".to_string()),
-            links: vec!["https://link1.com".to_string()],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content".to_string()),
+            }],
+            links: HashSet::from(["https://link1.com".to_string()]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -242,19 +341,22 @@ mod tests {
 
     #[test]
     fn test_snapshots_sorted_by_fetch_time() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         // Add snapshots in chronological order
         let snapshot_newest = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content v3".to_string()),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content v3".to_string()),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -265,15 +367,18 @@ mod tests {
         };
 
         let snapshot_newer = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content v2".to_string()),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content v2".to_string()),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -284,15 +389,18 @@ mod tests {
         };
 
         let snapshot_older = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content v1".to_string()),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content v1".to_string()),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -333,19 +441,22 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_snapshots_out_of_order() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         // Add snapshots in reverse chronological order
         let snapshot_newer = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content v2".to_string()),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content v2".to_string()),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -356,15 +467,18 @@ mod tests {
         };
 
         let snapshot_older = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content v1".to_string()),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content v1".to_string()),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -381,21 +495,21 @@ mod tests {
 
     #[test]
     fn test_add_snapshot_strips_pagination_from_links() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::None,
-            links: vec![
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: Vec::new(),
+            links: HashSet::from([
                 "https://example.com/article?page=2".to_string(),
                 "https://example.com/article?page=3".to_string(),
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -412,22 +526,22 @@ mod tests {
 
     #[test]
     fn test_consolidate_links_deduplicates() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         let snapshot1 = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::None,
-            links: vec![
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: Vec::new(),
+            links: HashSet::from([
                 "https://link1.com".to_string(),
                 "https://link2.com".to_string(),
                 "https://link1.com".to_string(), // duplicate
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -438,18 +552,18 @@ mod tests {
         };
 
         let snapshot2 = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::None,
-            links: vec![
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: Vec::new(),
+            links: HashSet::from([
                 "https://link2.com".to_string(), // duplicate from snapshot1
                 "https://link3.com".to_string(),
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: None,
@@ -473,6 +587,7 @@ mod tests {
     fn test_snapshot_from_extracted_page() {
         let extracted = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
@@ -492,11 +607,14 @@ mod tests {
 
         let snapshot = HistoricalSnapshot::from_extracted_page(extracted.clone());
 
-        assert_eq!(snapshot.task.url_id, 1);
-        assert_eq!(snapshot.task.url, "https://example.com");
+        // assert_eq!(snapshot.task.url_id, 1);
+        // assert_eq!(snapshot.task.url, "https://example.com");
         assert_eq!(
             snapshot.content_markdown,
-            HistoricalContentType::Literal("Content".to_string())
+            vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content".to_string())
+            }]
         );
         assert_eq!(snapshot.links.len(), 1);
         assert_eq!(snapshot.metadata.as_ref().unwrap().status_code, 200);
@@ -506,38 +624,48 @@ mod tests {
     fn test_from_trait_for_snapshot() {
         let extracted = ExtractedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
                 priority: 0,
                 discovered_from: None,
             },
-            content_markdown: None,
+            content_markdown: Some("Example content".to_string()),
             links: vec![],
             metadata: None,
         };
 
         let snapshot: HistoricalSnapshot = extracted.into();
-        assert_eq!(snapshot.task.url_id, 1);
+        assert_eq!(
+            snapshot.content_markdown,
+            vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Example content".to_string())
+            }]
+        );
     }
 
     #[test]
     fn test_historical_page_serialization_skips_snapshot_links() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal("Content".to_string()),
-            links: vec![
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal("Content".to_string()),
+            }],
+            links: HashSet::from([
                 "https://link1.com".to_string(),
                 "https://link2.com".to_string(),
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -551,7 +679,7 @@ mod tests {
 
         // Serialize to JSON
         let json = serde_json::to_string(&page).expect("Failed to serialize");
-
+        println!("json: {json}");
         // Verify JSON doesn't contain "links" field (which would be in snapshots)
         // It should only have the consolidated all_links
         assert!(
@@ -563,6 +691,8 @@ mod tests {
         let json_value: serde_json::Value =
             serde_json::from_str(&json).expect("Failed to parse JSON");
 
+        // Task should be top-level
+        assert!(json_value.get("task").is_some(), "Should have task");
         // Snapshots should not have a links field
         let snapshots = json_value["historical_snapshots"]
             .as_array()
@@ -580,7 +710,6 @@ mod tests {
             current.get("content_markdown").is_some(),
             "Snapshot should have content_markdown"
         );
-        assert!(current.get("task").is_some(), "Snapshot should have task");
         assert!(
             current.get("metadata").is_some(),
             "Snapshot should have metadata"
@@ -589,20 +718,23 @@ mod tests {
 
     #[test]
     fn test_delta_identical() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         page.add_snapshot(HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "The cat sat on the mat and purred.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "The cat sat on the mat and purred.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -613,17 +745,20 @@ mod tests {
         });
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "The cat sat on the mat and purred.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "The cat sat on the mat and purred.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -633,28 +768,33 @@ mod tests {
             }),
         };
 
-        let (distance, delta) = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
+        let deltas = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
 
+        assert_eq!(1, deltas.len());
+        let (_page, (distance, delta)) = deltas.first().unwrap().to_owned();
         assert_eq!(0, distance);
         assert_eq!(28, delta.len());
     }
 
     #[test]
     fn test_delta_similar() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         page.add_snapshot(HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "The cat sat on the mat and purred.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "The cat sat on the mat and purred.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -665,17 +805,20 @@ mod tests {
         });
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "The cat slept on the mat and purred.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "The cat slept on the mat and purred.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -685,7 +828,10 @@ mod tests {
             }),
         };
 
-        let (distance, delta) = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
+        let deltas = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
+
+        assert_eq!(1, deltas.len());
+        let (_page, (distance, delta)) = deltas.first().unwrap().to_owned();
 
         assert_eq!(6, distance);
         assert_eq!(36, delta.len());
@@ -693,20 +839,23 @@ mod tests {
 
     #[test]
     fn test_delta_far() {
-        let mut page = HistoricalPage::new("https://example.com".to_string());
+        let mut page = HistoricalPage::new(default_task("https://example.com"));
 
         page.add_snapshot(HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "The cat sat on the mat and purred.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "The cat sat on the mat and purred.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -717,17 +866,20 @@ mod tests {
         });
 
         let snapshot = HistoricalSnapshot {
-            task: FetchTask {
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: 0,
-                discovered_from: None,
-            },
-            content_markdown: HistoricalContentType::Literal(
-                "Once upon a time, there was a cat on a mat.".to_string(),
-            ),
-            links: vec![],
+            // task: FetchTask {
+            //     url_id: 1,
+            //     url: "https://example.com".to_string(),
+            //     depth: 0,
+            //     priority: 0,
+            //     discovered_from: None,
+            // },
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: HistoricalContentType::Literal(
+                    "Once upon a time, there was a cat on a mat.".to_string(),
+                ),
+            }],
+            links: HashSet::new(),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -737,7 +889,10 @@ mod tests {
             }),
         };
 
-        let (distance, delta) = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
+        let deltas = HistoricalPage::delta(&page.current.unwrap(), &snapshot).unwrap();
+
+        assert_eq!(1, deltas.len());
+        let (_page, (distance, delta)) = deltas.first().unwrap().to_owned();
 
         assert_eq!(33, distance);
         assert_eq!(72, delta.len());

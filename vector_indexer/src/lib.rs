@@ -46,40 +46,47 @@ fn current_content(path: &Path) -> Option<String> {
         Ok(r) => r,
     };
 
-    match content.current() {
+    match content.current().to_owned() {
         None => {
             warn!("Processing {}: No content", path.display());
             None
         }
-        Some(r) => match &r.content_markdown {
-            common::historical::HistoricalContentType::None => {
-                warn!("Processing {}: Empty content", path.display());
-                None
+        Some(mut r) => {
+            r.content_markdown.sort_by_cached_key(|c| c.page);
+            let mut content = String::new();
+            for page in r.content_markdown {
+                match page.content {
+                    common::historical::HistoricalContentType::None => {
+                        warn!("Processing {}: Empty content", path.display());
+                        return None;
+                    }
+                    common::historical::HistoricalContentType::Literal(t) if t.is_empty() => {
+                        warn!("Processing {}: Empty content", path.display());
+                        return None;
+                    }
+                    common::historical::HistoricalContentType::Literal(t) if t.len() < 5_000 => {
+                        warn!(
+                            "Processing {}: Too little content {} < 5,000",
+                            path.display(),
+                            t.len()
+                        );
+                        return None;
+                    }
+                    common::historical::HistoricalContentType::Literal(text) => {
+                        info!("Processing {}", path.display());
+                        content.push_str(&text);
+                    }
+                    common::historical::HistoricalContentType::Delta(_) => {
+                        error!(
+                            "Processing {}: Invalid content (current cannot be a delta)",
+                            path.display()
+                        );
+                        return None;
+                    }
+                };
             }
-            common::historical::HistoricalContentType::Literal(t) if t.is_empty() => {
-                warn!("Processing {}: Empty content", path.display());
-                None
-            }
-            common::historical::HistoricalContentType::Literal(t) if t.len() < 5_000 => {
-                warn!(
-                    "Processing {}: Too little content {} < 5,000",
-                    path.display(),
-                    t.len()
-                );
-                None
-            }
-            common::historical::HistoricalContentType::Literal(text) => {
-                info!("Processing {}", path.display());
-                Some(text.to_owned())
-            }
-            common::historical::HistoricalContentType::Delta(_) => {
-                error!(
-                    "Processing {}: Invalid content (current cannot be a delta)",
-                    path.display()
-                );
-                None
-            }
-        },
+            Some(content)
+        }
     }
 }
 
@@ -145,7 +152,7 @@ mod tests {
     use crate::vector_db::MockVectorDb;
 
     use super::*;
-    use std::fs;
+    use std::{collections::VecDeque, fs};
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
     use vector_common::MockEmbedder;
@@ -192,19 +199,47 @@ mod tests {
     fn current_content_accepts_large_content() {
         let file = NamedTempFile::new().unwrap();
 
+        let w = common::historical::HistoricalPage {
+            task: common::types::FetchTask {
+                article_id: 0,
+                url_id: 0,
+                url: "example.com".to_string(),
+                depth: 0,
+                priority: 0,
+                discovered_from: None,
+            },
+            current: Some(common::historical::HistoricalSnapshot {
+                links: std::collections::HashSet::new(),
+                metadata: None,
+                content_markdown: vec![common::historical::HistoricalContent {
+                    page: 1,
+                    content: common::historical::HistoricalContentType::Literal(
+                        "big_text".to_string(),
+                    ),
+                }],
+            }),
+            historical_snapshots: VecDeque::new(),
+            all_links: std::collections::HashSet::new(),
+        };
+
+        println!("full: '{}'", serde_json::to_string(&w).unwrap());
+
         let big_text = "a".repeat(6000);
 
         let json = serde_json::json!({
+            "task": {
+                "url_id": 0,
+                "url": "example.com",
+                "depth": 0,
+                "priority": 0
+            },
             "current": {
-                "task": {
-                    "url_id": 0,
-                    "url": "example.com",
-                    "depth": 0,
-                    "priority": 0
-                },
-                "content_markdown": {
-                    "Literal": big_text
-                },
+                "content_markdown": [{
+                    "content": {
+                        "Literal": big_text
+                    },
+                    "page": 1
+                }],
                 "links": []
             },
             "url": "example.com",
