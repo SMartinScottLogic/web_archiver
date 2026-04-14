@@ -104,6 +104,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> 
         depth: next_depth,
     };
 
+    // TODO Add page title, etc to `Steve`
     let historical_snapshot = Steve {
         task: fetched.task,
         content: markdown,

@@ -11,7 +11,7 @@ use crate::{
     Archiver,
     page::PageReader,
     types::ExtractedPage,
-    url::{hash_url, sanitize},
+    url::{hash_url, sanitize_segment},
 };
 
 pub struct BalancedArchiver {
@@ -48,7 +48,7 @@ impl Archiver for BalancedArchiver {
 
         let slug = last_segment
             .first()
-            .map(|s| sanitize(s))
+            .map(|s| sanitize_segment(s))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "_".to_string());
 
@@ -59,7 +59,7 @@ impl Archiver for BalancedArchiver {
         base_path.push(domain);
 
         for seg in prefix_segments {
-            let clean = sanitize(seg);
+            let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
             }
@@ -113,7 +113,7 @@ impl Archiver for BalancedArchiver {
 
         let slug = last_segment
             .first()
-            .map(|s| sanitize(s))
+            .map(|s| sanitize_segment(s))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "_".to_string());
 
@@ -124,7 +124,7 @@ impl Archiver for BalancedArchiver {
         base_path.push(domain);
 
         for seg in prefix_segments {
-            let clean = sanitize(seg);
+            let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
             }

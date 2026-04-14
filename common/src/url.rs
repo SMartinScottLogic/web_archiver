@@ -256,8 +256,8 @@ pub fn url_to_filename(url: &str) -> String {
 
     let filename = filename.trim_matches('-');
 
-    if filename.is_empty() {
-        "index".to_string()
+    if filename.is_empty() || filename.ends_with(['\\', '/']) {
+        format!("{}{}", filename, "index")
     } else {
         filename.to_string()
     }
@@ -267,7 +267,7 @@ pub fn extract_domain(input: &str) -> Option<String> {
     Url::parse(input).ok()?.host_str().map(|s| s.to_string())
 }
 
-pub fn sanitize(input: &str) -> String {
+pub fn sanitize_segment(input: &str) -> String {
     let mut out = String::with_capacity(50);
     let mut last_was_underscore = false;
 
@@ -392,7 +392,7 @@ mod tests {
             url_to_filename("https://example.com/path?query=value#fragment"),
             "example.com/path-query-value-fragment"
         );
-        assert_eq!(url_to_filename("https://example.com/"), "example.com/");
+        assert_eq!(url_to_filename("https://example.com/"), "example.com/index");
         assert_eq!(url_to_filename(""), "index");
     }
 

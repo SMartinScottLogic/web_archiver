@@ -9,7 +9,7 @@
 /cheese/*
 /config.yaml
 /archive_index.csv
-/*.db.*
+/*.db-*
 /*.db
 /scratch
 /tarpaulin-report.html

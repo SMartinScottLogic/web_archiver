@@ -54,6 +54,7 @@ impl FrontierManager {
             }
         }
         if !seeds.is_empty() {
+            // TODO - FORCE priority
             let _ = db
                 .enqueue_batch(&seeds)
                 .inspect_err(|e| error!("enqueue seeds failed {:?}", e));

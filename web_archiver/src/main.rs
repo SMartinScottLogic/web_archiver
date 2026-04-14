@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tracing::level_filters::LevelFilter;
 
 mod extractor;
 mod fetcher;
@@ -28,15 +29,24 @@ use crate::extractor::{DiscoveredLinks, FetchedPage};
 
 const MAX_ACTIVE_ARTICLES: usize = 10;
 
-#[tokio::main]
-async fn main() {
-    // --- 1. Initialize logging ---
+/// Initialize logging ---
+fn setup_logging() {
+    // Initialize logging
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("html5ever::serialize=error".parse().unwrap());
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true) // show thread IDs
-        .with_thread_names(true) // show thread names
+        .with_env_filter(env_filter)
+        .with_thread_ids(false)
+        .with_thread_names(false)
         .with_span_events(FmtSpan::NONE)
         .init();
+}
+
+#[tokio::main]
+async fn main() {
+    setup_logging();
     info!("Starting Web Archiver (Migrated)");
 
     // Load allowed web_archiver config

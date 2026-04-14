@@ -14,7 +14,7 @@ use common::{
 };
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{Level, debug, error, event_enabled, info, warn};
 
 use crate::frontier::db::frontier::FrontierDb;
 
@@ -58,7 +58,7 @@ impl ArticleState {
     }
 
     fn done(&self) -> bool {
-        error!(known_remaining = ?self.pages.iter().filter(|page| !*page.1).collect::<Vec<_>>(), "known pages");
+        debug!(known_remaining = ?self.pages.iter().filter(|page| !*page.1).collect::<Vec<_>>(), "known pages");
         self.pages.iter().all(|(_url, &fetched)| fetched)
     }
 
@@ -114,8 +114,7 @@ impl ArticleState {
             })
         }
 
-        debug!(?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
-        info!(?self.filename, "apply");
+        debug!(?self.filename, ?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
     }
 
     async fn persist(&self) -> Result<(), std::io::Error> {
@@ -125,14 +124,16 @@ impl ArticleState {
             .iter()
             .map(|c| c.page)
             .collect::<Vec<_>>();
-        info!(?self.filename, num_pages = self.snapshot.content_markdown.len(), ?pages, "persist");
-        debug!(?self.filename, ?self.snapshot, "persist");
+        debug!(?self.filename, num_pages = self.snapshot.content_markdown.len(), ?pages, ?self.snapshot, "persist");
         Ok(())
     }
 
     async fn finalize(mut self) -> anyhow::Result<()> {
-        info!(?self.filename, "finalize");
-        debug!(?self.filename, ?self.snapshot, "finalize");
+        if event_enabled!(Level::DEBUG) {
+            debug!(?self.filename, ?self.snapshot, "finalize");
+        } else {
+            info!(?self.filename, "finalize");
+        }
         // 1. Read from archive; or create empty record
         let mut historical_page = File::open(&self.filename)
             .context("opening")
@@ -156,7 +157,7 @@ impl ArticleState {
         historical_page.add_snapshot(self.snapshot);
         // 3. Save resultant file to archive (overwriting)
         historical_page.write_page(&self.filename)
-        // 4. Update db
+        // TODO 4. Update db
     }
 
     fn is_page(&self, url: &str) -> bool {
@@ -217,7 +218,7 @@ impl<T: Archiver> Router<T> {
                 .archiver
                 .canonical_filename(&page.task.url, page.fetch_time)
                 .unwrap();
-
+            debug!(page.task.url, ?filename, "filename");
             let task = page.task.clone();
             let tx_done = self.done_tx.clone();
             let db = self.db.clone();

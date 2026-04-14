@@ -11,7 +11,7 @@ use crate::{
     Archiver,
     page::PageReader,
     types::ExtractedPage,
-    url::{hash_url, sanitize},
+    url::{hash_url, sanitize_segment},
 };
 
 pub struct FullPathArchiver {
@@ -51,7 +51,7 @@ impl Archiver for FullPathArchiver {
         base_path.push(domain);
 
         for seg in segments {
-            let clean = sanitize(seg);
+            let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
             }
@@ -101,7 +101,7 @@ impl Archiver for FullPathArchiver {
         base_path.push(domain);
 
         for seg in segments {
-            let clean = sanitize(seg);
+            let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
             }

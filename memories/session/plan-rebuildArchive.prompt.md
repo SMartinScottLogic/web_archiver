@@ -474,26 +474,34 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ hybrid_search
    - ✓ legacy-converter
 
-3e. **Step 4: Migrate web_archiver (crawler)** (write path) — IN PROGRESS - 2026-APR-13
+3e. **Step 4: Migrate web_archiver (crawler)** (write path) — COMPLETE (2026-04-14)
    Quality Gate to apply:
    - ✓ `cargo check -p web_archiver` must pass
-   - ✓ All web_archiver tests pass (existing + new end-to-end tests)
-   - Full pipeline test: crawl → store → index → search
-   - Plan updated and changes committed to git
+   - ✓ All web_archiver tests pass (existing + new end-to-end tests) - 35 Tests all pass
+   - ✓ Fix output filenames
+     - ✓ pagination parameters should not be included
+     - ✓ {path}/.json -> {path}/index.json
+   - ✓ Runtime logging cleaned up
+     - ✓ Default log level: INFO
+     - ✓ All logging set to appropriate levels - fully reviewed
+   - ✓ Full pipeline test: crawl → store → index → search
+   - ✓ Plan updated and changes committed to git
    
    Tasks:
-   - Implement crawl pipeline to generate HistoricalPages directly
-     - Fetch single page → create ExtractedPage → consolidate into HistoricalPage
-     - Handle multi-page articles during crawl: detect page params, consolidate immediately
-   - Refactor store layer to write HistoricalPage instead of ExtractedPage
-   - Update database schema if needed (url_id → url_hash)
-   - Test: crawl→store→index→search end-to-end
-   - Validation gate: full pipeline works with new format
+   - ✓ Implement crawl pipeline to generate HistoricalPages directly
+     - ✓ Fetch single page → create ExtractedPage → consolidate into HistoricalPage
+     - ✓ Handle multi-page articles during crawl: detect page params, consolidate immediately
+   - ✓ Refactor store layer to write HistoricalPage instead of ExtractedPage
+   - ✓ Update database schema if needed (url_id → url_hash)
+   - ✓ Test: crawl→store→index→search end-to-end
+   - ✓ Validation gate: full pipeline works with new format
 
 3f. **Final: Archive Cleanup & Code Coverage** — NOT STARTED
    Quality Gate to apply:
    - Full workspace `cargo check` passes
    - All workspace tests pass
+   - All TODO tasks resolved
+   - Cleanup commented out code
    - Code coverage: Each workspace crate achieving ≥80% line coverage
    - Documentation updated
    - Final git commit with migration completion notice

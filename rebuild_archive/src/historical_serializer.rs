@@ -149,6 +149,7 @@ impl HistoricalSerializer {
             page.consolidate_links();
 
             // Generate output path: target_dir/{domain}/{url_hash}.json
+            // TODO Switch to use an Archiver
             let output_path = self.generate_output_path(&key.normalized_url);
 
             // Serialize to disk

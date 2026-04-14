@@ -2,7 +2,7 @@ use anyhow::Result;
 use common::settings::CONFIG_FILE;
 use itertools::Itertools;
 use settings::Config;
-use tracing::{info, level_filters::LevelFilter, warn};
+use tracing::{debug, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 mod aggregator;
@@ -36,7 +36,7 @@ fn main() -> Result<()> {
     let config =
         Config::file(CONFIG_FILE).unwrap_or_else(|_| panic!("Failed to load {}", CONFIG_FILE));
 
-    info!("config: {:?}", config);
+    debug!("config: {:?}", config);
     info!("archive_dir: {}", config.archive_dir);
     info!("target_dir: {}", config.target_dir);
 
