@@ -1,10 +1,13 @@
 //! Unit tests for the FrontierManager (integration with DB and link processing)
 
-use common::settings::Host;
+use common::{settings::Host, types::Priority};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use web_archiver::{extractor::{DiscoveredLink, DiscoveredLinks}, frontier::frontier_manager::FrontierManager};
+use web_archiver::{
+    extractor::{DiscoveredLink, DiscoveredLinks},
+    frontier::frontier_manager::FrontierManager,
+};
 
 fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
     let conn = Connection::open_in_memory().unwrap();
@@ -86,9 +89,18 @@ async fn test_process_discovered_links_batching_and_filtering() {
     );
     let msg = DiscoveredLinks {
         links: vec![
-            DiscoveredLink { url: "http://foo.com/page1".to_string(), priority: 0 },
-            DiscoveredLink { url: "http://bar.com/page2".to_string(), priority: 0 }, // not allowed
-            DiscoveredLink { url: "ftp://foo.com/file".to_string(), priority: 0 },   // not http
+            DiscoveredLink {
+                url: "http://foo.com/page1".to_string(),
+                priority: Priority::default(),
+            },
+            DiscoveredLink {
+                url: "http://bar.com/page2".to_string(),
+                priority: Priority::default(),
+            }, // not allowed
+            DiscoveredLink {
+                url: "ftp://foo.com/file".to_string(),
+                priority: Priority::default(),
+            }, // not http
         ],
         depth: 1,
         parent_url_id: 1,

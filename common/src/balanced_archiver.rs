@@ -192,8 +192,8 @@ mod tests {
     use super::*;
     use crate::historical::HistoricalSnapshot;
     use crate::page::MockPageReader;
-    use crate::types::PageMetadata;
     use crate::types::{ExtractedPage, FetchTask};
+    use crate::types::{PageMetadata, Priority};
     use mockall::predicate::*;
     use std::collections::HashSet;
     use std::{fs, path::Path};
@@ -417,11 +417,11 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap())?;
             let page = ExtractedPage {
                 task: FetchTask {
-                article_id: 0,
+                    article_id: 0,
                     url_id: 1,
                     url: "https://example.com/same".into(),
                     depth: 0,
-                    priority: 0,
+                    priority: Priority::default(),
                     discovered_from: None,
                 },
                 content_markdown: None,

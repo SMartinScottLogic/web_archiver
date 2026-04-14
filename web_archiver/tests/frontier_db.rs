@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
-use common::types::FetchTask;
+use common::types::{FetchTask, Priority};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use web_archiver::frontier::db::frontier::FrontierDb;
@@ -47,7 +47,7 @@ fn test_enqueue_and_claim() {
         url_id: 0,
         url: "http://example.com".to_string(),
         depth: 0,
-        priority: 5,
+        priority: Priority::default(),
         discovered_from: None,
     };
     db.enqueue_batch(std::slice::from_ref(&task)).unwrap();
@@ -66,7 +66,7 @@ fn test_enqueue_batch_deduplication() {
         url_id: 0,
         url: "http://a.com".to_string(),
         depth: 0,
-        priority: 1,
+        priority: Priority::default(),
         discovered_from: None,
     };
     let t2 = FetchTask {
@@ -74,7 +74,7 @@ fn test_enqueue_batch_deduplication() {
         url_id: 0,
         url: "http://b.com".to_string(),
         depth: 1,
-        priority: 2,
+        priority: Priority::default(),
         discovered_from: Some(1),
     };
     let t3 = FetchTask {
@@ -82,7 +82,7 @@ fn test_enqueue_batch_deduplication() {
         url_id: 0,
         url: "http://a.com".to_string(), // duplicate
         depth: 2,
-        priority: 3,
+        priority: Priority::default(),
         discovered_from: Some(2),
     };
     db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()])
@@ -108,7 +108,7 @@ fn test_mark_complete_and_counts() {
         url_id: 0,
         url: "http://foo.com".to_string(),
         depth: 0,
-        priority: 1,
+        priority: Priority::default(),
         discovered_from: None,
     };
     let t2 = FetchTask {
@@ -116,7 +116,7 @@ fn test_mark_complete_and_counts() {
         url_id: 0,
         url: "http://bar.com".to_string(),
         depth: 0,
-        priority: 2,
+        priority: Priority::default(),
         discovered_from: None,
     };
     db.enqueue_batch(&[t1.clone(), t2.clone()]).unwrap();

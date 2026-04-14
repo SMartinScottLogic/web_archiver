@@ -152,6 +152,7 @@ mod tests {
     use crate::vector_db::MockVectorDb;
 
     use super::*;
+    use common::types::Priority;
     use std::{collections::VecDeque, fs};
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
@@ -205,7 +206,7 @@ mod tests {
                 url_id: 0,
                 url: "example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             current: Some(common::historical::HistoricalSnapshot {

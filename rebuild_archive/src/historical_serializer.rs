@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
-use common::types::FetchTask;
+use common::types::{FetchTask, Priority};
 use common::url::url_to_filename;
 
 use chrono::offset::Utc;
@@ -115,7 +115,14 @@ impl HistoricalSerializer {
 
         for (key, merged_snapshots) in aggregates {
             // Create a HistoricalPage for this domain+URL combination
-            let fetch_task = FetchTask { url: key.normalized_url.clone(), article_id: 0, url_id: 0, depth: 0, priority: 0, discovered_from: None };
+            let fetch_task = FetchTask {
+                url: key.normalized_url.clone(),
+                article_id: 0,
+                url_id: 0,
+                depth: 0,
+                priority: Priority::default(),
+                discovered_from: None,
+            };
             let mut page = HistoricalPage::new(fetch_task);
 
             // Add each merged snapshot to the historical page
@@ -246,7 +253,7 @@ mod tests {
                 url_id: 1,
                 url: "http://example.com/page".to_string(),
                 depth: 1,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Original content".to_string()),

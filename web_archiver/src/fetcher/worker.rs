@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::types::{FetchTask};
+use common::types::FetchTask;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
 
@@ -48,6 +48,8 @@ async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, reqw
 
 #[cfg(test)]
 mod tests {
+    use common::types::Priority;
+
     use super::*;
 
     #[tokio::test]
@@ -68,7 +70,7 @@ mod tests {
             url_id: 1,
             url: "https://httpbin.org/html".to_string(),
             depth: 0,
-            priority: 0,
+            priority: Priority::default(),
             discovered_from: None,
         };
         let (tx, mut rx) = mpsc::channel(1);

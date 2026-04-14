@@ -1,4 +1,4 @@
-use common::types::FetchTask;
+use common::types::{FetchTask, Priority};
 
 pub mod parser;
 pub mod router;
@@ -21,29 +21,31 @@ pub struct DiscoveredLinks {
 
 #[derive(Clone, Debug)]
 pub struct DiscoveredLink {
-    pub priority: i32,
+    pub priority: Priority,
     pub url: String,
 }
 impl From<&str> for DiscoveredLink {
     fn from(value: &str) -> Self {
         Self {
             url: value.to_string(),
-            priority: 0_i32,
+            priority: Priority::Normal,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use common::types::Priority;
+
     use super::*;
 
     fn sample_task() -> FetchTask {
         FetchTask {
-                article_id: 0,
+            article_id: 0,
             url_id: 42,
             url: "http://example.com".to_string(),
             depth: 1,
-            priority: 5,
+            priority: Priority::default(),
             discovered_from: Some(1),
         }
     }

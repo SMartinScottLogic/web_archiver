@@ -628,8 +628,10 @@ dependencies = [
  "oxidelta",
  "readability",
  "reqwest 0.13.2",
+ "rusqlite",
  "serde",
  "serde_json",
+ "serde_repr",
  "simhash",
  "tempfile",
  "tokio",
@@ -3915,6 +3917,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ce1fc6db65a611022b23a0dec6975d63fb80a302cb3388835ff02c097258d50"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serde_repr"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

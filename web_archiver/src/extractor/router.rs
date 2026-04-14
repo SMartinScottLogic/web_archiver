@@ -9,7 +9,8 @@ use anyhow::Context;
 use common::{
     Archiver,
     historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot},
-    types::{ArticleId, FetchTask, PageMetadata}, url::remove_pagination_params,
+    types::{ArticleId, FetchTask, PageMetadata, Priority},
+    url::remove_pagination_params,
 };
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
@@ -30,6 +31,7 @@ pub struct Router<T: Archiver> {
     max_active: usize,
     archiver: T,
     done_tx: mpsc::Sender<ArticleId>,
+    db: FrontierDb,
 }
 
 struct ArticleState {
@@ -37,10 +39,11 @@ struct ArticleState {
     filename: PathBuf,
     snapshot: HistoricalSnapshot,
     pages: HashMap<String, bool>,
+    db: FrontierDb,
 }
 
 impl ArticleState {
-    fn new(filename: PathBuf, task: FetchTask) -> Self {
+    fn new(filename: PathBuf, task: FetchTask, db: FrontierDb) -> Self {
         Self {
             task,
             filename,
@@ -50,30 +53,48 @@ impl ArticleState {
                 metadata: None,
             },
             pages: HashMap::new(),
+            db,
         }
     }
 
     fn done(&self) -> bool {
-        error!(?self.pages, "known pages");
+        error!(known_remaining = ?self.pages.iter().filter(|page| !*page.1).collect::<Vec<_>>(), "known pages");
         self.pages.iter().all(|(_url, &fetched)| fetched)
     }
 
     fn apply(&mut self, page: Steve) {
         let page_number = match common::url::extract_page(&page.task.url) {
             common::url::Page::Number(page_number) => page_number,
-            _ => 1
+            _ => 1,
         };
 
         // Ensure current page is in pages (otherwise we'll double fetch the first)
         // Mark as fetched
         *self.pages.entry(page.task.url.clone()).or_insert(false) = true;
 
+        let mut batch = Vec::new();
         // Add links to snapshot and article queue
         for link in &page.links {
             self.snapshot.links.insert(link.to_string());
+            let mut priority = Priority::default();
             if self.is_page(link) {
                 self.pages.entry(link.to_string()).or_insert(false);
+                priority = Priority::Article;
             }
+            batch.push(FetchTask {
+                article_id: self.task.article_id,
+                url_id: 0, // Will be set by DB
+                url: link.to_string(),
+                depth: self.task.depth + 1,
+                priority,
+                discovered_from: Some(self.task.url_id),
+            });
+        }
+        if !batch.is_empty() {
+            let _ = self
+                .db
+                .enqueue_batch(&batch)
+                .inspect_err(|e| error!("failed enqueuing {:?}", e));
         }
 
         let content = HistoricalContent {
@@ -84,7 +105,13 @@ impl ArticleState {
 
         // Setup metadata
         if self.snapshot.metadata.is_none() {
-            self.snapshot.metadata = Some(PageMetadata { status_code: StatusCode::OK.as_u16(), content_type: None, fetch_time: page.fetch_time.try_into().unwrap_or_default(), title: None, document_metadata: None })
+            self.snapshot.metadata = Some(PageMetadata {
+                status_code: StatusCode::OK.as_u16(),
+                content_type: None,
+                fetch_time: page.fetch_time.try_into().unwrap_or_default(),
+                title: None,
+                document_metadata: None,
+            })
         }
 
         debug!(?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
@@ -92,7 +119,12 @@ impl ArticleState {
     }
 
     async fn persist(&self) -> Result<(), std::io::Error> {
-        let pages = self.snapshot.content_markdown.iter().map(|c| c.page).collect::<Vec<_>>();
+        let pages = self
+            .snapshot
+            .content_markdown
+            .iter()
+            .map(|c| c.page)
+            .collect::<Vec<_>>();
         info!(?self.filename, num_pages = self.snapshot.content_markdown.len(), ?pages, "persist");
         debug!(?self.filename, ?self.snapshot, "persist");
         Ok(())
@@ -117,7 +149,9 @@ impl ArticleState {
             .unwrap();
         // 2. Add each page to record for current 'archival date'
         // 2a Sort by page
-        self.snapshot.content_markdown.sort_by_cached_key(|page| page.page);
+        self.snapshot
+            .content_markdown
+            .sort_by_cached_key(|page| page.page);
         // 2b Add to historical page
         historical_page.add_snapshot(self.snapshot);
         // 3. Save resultant file to archive (overwriting)
@@ -131,12 +165,18 @@ impl ArticleState {
 }
 
 impl<T: Archiver> Router<T> {
-    pub fn new(archiver: T, _db: FrontierDb, done_tx: mpsc::Sender<ArticleId>, max_active: usize) -> Self {
+    pub fn new(
+        archiver: T,
+        db: FrontierDb,
+        done_tx: mpsc::Sender<ArticleId>,
+        max_active: usize,
+    ) -> Self {
         Self {
             active: HashMap::new(),
             max_active,
             archiver,
             done_tx,
+            db,
         }
     }
 
@@ -170,7 +210,8 @@ impl<T: Archiver> Router<T> {
             // Case 3: spawn new actor
             let (tx, rx) = mpsc::channel(32);
 
-            self.active.insert(article_id, (tx.clone(), page.task.url.clone()));
+            self.active
+                .insert(article_id, (tx.clone(), page.task.url.clone()));
 
             let filename = self
                 .archiver
@@ -179,8 +220,9 @@ impl<T: Archiver> Router<T> {
 
             let task = page.task.clone();
             let tx_done = self.done_tx.clone();
+            let db = self.db.clone();
             tokio::spawn(async move {
-                article_actor(article_id, filename, task, rx, tx_done).await;
+                article_actor(article_id, filename, task, rx, tx_done, db).await;
             });
 
             // loop will retry send immediately
@@ -194,8 +236,9 @@ async fn article_actor(
     task: FetchTask,
     mut rx: mpsc::Receiver<Steve>,
     done_tx: mpsc::Sender<ArticleId>,
+    db: FrontierDb,
 ) {
-    let mut state = ArticleState::new(filename, task);
+    let mut state = ArticleState::new(filename, task, db);
 
     while let Some(page) = rx.recv().await {
         state.apply(page);

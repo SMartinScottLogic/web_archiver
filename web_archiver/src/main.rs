@@ -23,8 +23,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use common::settings::CONFIG_FILE;
 use settings::Config;
 
-use crate::extractor::{DiscoveredLinks, FetchedPage};
 use crate::extractor::router::{Router, Steve};
+use crate::extractor::{DiscoveredLinks, FetchedPage};
 
 const MAX_ACTIVE_ARTICLES: usize = 10;
 

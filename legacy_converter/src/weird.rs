@@ -7,7 +7,7 @@ use nom::sequence::pair;
 use nom::{Parser as _, combinator::recognize};
 use std::collections::HashMap;
 
-use common::types::{ExtractedPage, FetchTask, PageMetadata};
+use common::types::{ExtractedPage, FetchTask, PageMetadata, Priority};
 
 use nom::bytes::complete::tag;
 use nom::character::complete::not_line_ending;
@@ -81,11 +81,11 @@ fn to_extracted_page(
 
         links: urls,
         task: FetchTask {
-                article_id: 0,
+            article_id: 0,
             url_id,
             url: story_url,
             depth: u32::MAX,
-            priority: 0,
+            priority: Priority::default(),
             discovered_from,
         },
     };

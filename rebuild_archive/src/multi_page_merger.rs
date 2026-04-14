@@ -138,7 +138,7 @@ pub fn merge_pages_by_date(pages: &[PageEntry]) -> HashMap<(u32, u32), MergedSna
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::types::{FetchTask, PageMetadata};
+    use common::types::{FetchTask, PageMetadata, Priority};
 
     fn make_page(
         url: &str,
@@ -150,11 +150,11 @@ mod tests {
         PageEntry {
             page: ExtractedPage {
                 task: FetchTask {
-                article_id: 0,
+                    article_id: 0,
                     url_id: 1,
                     url: url.to_string(),
                     depth: 0,
-                    priority: 0,
+                    priority: Priority::default(),
                     discovered_from: None,
                 },
                 content_markdown: Some(content.to_string()),
@@ -257,11 +257,7 @@ mod tests {
 
         // Should have 3 unique links (shared appears once, link1 and link2 once each)
         assert_eq!(snapshot.all_links.len(), 3);
-        assert!(
-            snapshot
-                .all_links
-                .contains("http://shared.com")
-        );
+        assert!(snapshot.all_links.contains("http://shared.com"));
         assert!(snapshot.all_links.contains("http://link1.com"));
         assert!(snapshot.all_links.contains("http://link2.com"));
     }

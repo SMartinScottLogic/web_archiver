@@ -1,7 +1,7 @@
 use crate::extractor::DiscoveredLinks;
 use crate::frontier::db::frontier::FrontierDb;
 use common::settings::Host;
-use common::types::FetchTask;
+use common::types::{FetchTask, Priority};
 use common::url::{canonicalize_url, extract_domain, is_http_url};
 use reqwest::Client;
 use rusqlite::Connection;
@@ -45,18 +45,18 @@ impl FrontierManager {
             if let Some(canonical) = canonicalize_url(&url) {
                 seeds.push(FetchTask {
                     article_id: 0, // TODO Ensure set by DB
-                    url_id: 0, // Will be set by DB
+                    url_id: 0,     // Will be set by DB
                     url: canonical,
                     depth: 0,
-                    priority: 0,
+                    priority: Priority::default(),
                     discovered_from: None,
                 });
             }
         }
         if !seeds.is_empty() {
-            let _ = db.enqueue_batch(&seeds)
-            .inspect_err(|e| error!("enqueue seeds failed {:?}", e))
-            ;
+            let _ = db
+                .enqueue_batch(&seeds)
+                .inspect_err(|e| error!("enqueue seeds failed {:?}", e));
         }
         Self {
             db,
@@ -143,7 +143,7 @@ impl FrontierManager {
             if self.should_crawl(&link.url).await {
                 batch.push(FetchTask {
                     article_id: 0, // TODO Ensure set by DB
-                    url_id: 0, // Will be set by DB
+                    url_id: 0,     // Will be set by DB
                     url: link.url,
                     depth: msg.depth,
                     priority: link.priority,
@@ -152,9 +152,10 @@ impl FrontierManager {
             }
         }
         if !batch.is_empty() {
-            let _ = self.db.enqueue_batch(&batch)
-            .inspect_err(|e| error!("failed enqueuing {:?}", e))
-            ;
+            let _ = self
+                .db
+                .enqueue_batch(&batch)
+                .inspect_err(|e| error!("failed enqueuing {:?}", e));
         }
     }
 
@@ -257,8 +258,8 @@ mod tests {
     use crate::frontier::db::frontier::FrontierDb;
     use map_macro::hash_map;
     use rusqlite::Connection;
-    use tracing_test::traced_test;
     use std::sync::{Arc, Mutex};
+    use tracing_test::traced_test;
 
     fn setup_manager(hosts: Vec<Host>) -> FrontierManager {
         let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));

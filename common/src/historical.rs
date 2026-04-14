@@ -2,10 +2,10 @@ use anyhow::Context as _;
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize, Serializer};
 use simhash::simhash;
-use tracing::debug;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
+use tracing::debug;
 
 use crate::compressed_string;
 use crate::types::{ExtractedPage, FetchTask, PageMetadata};
@@ -184,7 +184,12 @@ impl HistoricalPage {
                 .map(|m| m.fetch_time)
                 .unwrap_or_default(),
         };
-        assert!(snapshot_fetch_time > current_fetch_time, "snapshot_fetch_time: {}, current_fetch_time: {}", snapshot_fetch_time, current_fetch_time);
+        assert!(
+            snapshot_fetch_time > current_fetch_time,
+            "snapshot_fetch_time: {}, current_fetch_time: {}",
+            snapshot_fetch_time,
+            current_fetch_time
+        );
         // Add snapshot's links to the set (deduplication is automatic), with paging stripped
         for link in &snapshot.links {
             let normalized_link = crate::url::remove_pagination_params(link);
@@ -200,7 +205,10 @@ impl HistoricalPage {
                 .unwrap_or_default();
             if max_distance < 5 {
                 // Replace 'current'
-                debug!("snapshots very similar, replacing current: {}; {:?} | {:?} | {:?}", max_distance, deltas, current, snapshot);
+                debug!(
+                    "snapshots very similar, replacing current: {}; {:?} | {:?} | {:?}",
+                    max_distance, deltas, current, snapshot
+                );
             } else {
                 // Old current becomes a delta
                 let mut current = current.to_owned();
@@ -295,10 +303,19 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::types::Priority;
+
     use super::*;
 
     fn default_task(url: &str) -> FetchTask {
-        FetchTask { article_id: 0, url_id: 0, url: url.to_string(), depth: 0, priority: 0, discovered_from: None }
+        FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: url.to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        }
     }
     #[test]
     fn test_historical_page_creation() {
@@ -591,7 +608,7 @@ mod tests {
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Content".to_string()),
@@ -628,7 +645,7 @@ mod tests {
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Example content".to_string()),

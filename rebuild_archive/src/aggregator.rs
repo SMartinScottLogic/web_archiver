@@ -114,7 +114,7 @@ impl Default for ArchiveAggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::types::{FetchTask, PageMetadata};
+    use common::types::{FetchTask, PageMetadata, Priority};
 
     fn make_page(url: &str, fetch_time: u64) -> ExtractedPage {
         ExtractedPage {
@@ -123,7 +123,7 @@ mod tests {
                 url_id: 1,
                 url: url.to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("content".to_string()),

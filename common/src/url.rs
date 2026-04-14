@@ -10,7 +10,7 @@ use url::{Url, form_urlencoded};
 pub enum Page<T> {
     Number(T),
     Text(String),
-    None
+    None,
 }
 
 fn is_default_port(scheme: &str, port: u16) -> bool {
@@ -23,19 +23,28 @@ fn is_default_port(scheme: &str, port: u16) -> bool {
 
 fn pagination_params() -> &'static [&'static str] {
     &[
-        "page", "p", "offset", "start", "begin", "begin_idx", "idx", "from",
-        "_start", "_skip", "limit", "pn",
+        "page",
+        "p",
+        "offset",
+        "start",
+        "begin",
+        "begin_idx",
+        "idx",
+        "from",
+        "_start",
+        "_skip",
+        "limit",
+        "pn",
     ]
 }
 
 fn is_ignored_param(key: &str) -> bool {
     // Tracking / analytics
-    key.starts_with("utm_") || 
-    matches!(
-        key,
-        // Ad / click tracking
-            | "gclid"
-            | "fbclid"
+    key.starts_with("utm_")
+        || matches!(
+            key,
+            // Ad / click tracking
+            |"gclid"| "fbclid"
             | "dclid"
             | "msclkid"
             | "igshid"
@@ -56,7 +65,7 @@ fn is_ignored_param(key: &str) -> bool {
             | "sessionid"
             | "phpsessid"
             | "sid"
-    )
+        )
 }
 
 fn encode_sorted_query(pairs: &[(String, String)]) -> String {
@@ -76,11 +85,7 @@ fn encode_sorted_query(pairs: &[(String, String)]) -> String {
         .finish()
 }
 
-fn filter_query_pairs<F>(
-    url: &Url,
-    mut filter: F,
-    dedupe: bool,
-) -> Vec<(String, String)>
+fn filter_query_pairs<F>(url: &Url, mut filter: F, dedupe: bool) -> Vec<(String, String)>
 where
     F: FnMut(&str) -> bool,
 {
@@ -174,11 +179,7 @@ pub fn remove_pagination_params(input: &str) -> String {
         Err(_) => return input.to_string(),
     };
 
-    let pairs = filter_query_pairs(
-        &parsed,
-        |k| !pagination_params().contains(&k),
-        false,
-    );
+    let pairs = filter_query_pairs(&parsed, |k| !pagination_params().contains(&k), false);
 
     let encoded = encode_sorted_query(&pairs);
 
@@ -194,11 +195,7 @@ pub fn remove_pagination_params(input: &str) -> String {
 pub fn normalize_url_for_merge(url_str: &str) -> Option<String> {
     let mut parsed = Url::parse(url_str).ok()?;
 
-    let pairs = filter_query_pairs(
-        &parsed,
-        |k| !pagination_params().contains(&k),
-        false,
-    );
+    let pairs = filter_query_pairs(&parsed, |k| !pagination_params().contains(&k), false);
 
     let encoded = encode_sorted_query(&pairs);
 
@@ -212,7 +209,6 @@ pub fn normalize_url_for_merge(url_str: &str) -> Option<String> {
 }
 
 pub fn extract_page(url_str: &str) -> Page<u32> {
-
     let parsed = match Url::parse(url_str).ok() {
         Some(p) => p,
         None => return Page::None,
@@ -222,8 +218,8 @@ pub fn extract_page(url_str: &str) -> Page<u32> {
         if pagination_params().contains(&key.as_ref()) {
             return match value.parse::<u32>() {
                 Ok(n) => Page::Number(n),
-                Err(_err) => Page::Text(value.to_string())
-            }
+                Err(_err) => Page::Text(value.to_string()),
+            };
         }
     }
 
@@ -300,11 +296,7 @@ pub fn sanitize(input: &str) -> String {
         out.pop();
     }
 
-    if out.is_empty() {
-        "_".to_string()
-    } else {
-        out
-    }
+    if out.is_empty() { "_".to_string() } else { out }
 }
 
 #[cfg(test)]

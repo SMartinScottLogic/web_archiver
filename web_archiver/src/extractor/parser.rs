@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use common::markdown::html_to_markdown;
+use common::types::Priority;
 use common::url::{canonicalize_url, resolve_relative_link};
 use lazy_static::lazy_static;
 use map_macro::hash_map;
@@ -95,15 +96,20 @@ async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> 
         parent_url_id: this_url_id,
         links: links
             .iter()
-            .map(|url| {
-                let priority = get_priority(&fetched.task.url, url);
-                DiscoveredLink { url: url.to_owned(), priority }
+            .map(|url| DiscoveredLink {
+                url: url.to_owned(),
+                priority: Priority::default(),
             })
             .collect(),
-        depth:next_depth,
+        depth: next_depth,
     };
 
-    let historical_snapshot = Steve { task: fetched.task, content: markdown, fetch_time: chrono::Utc::now().timestamp(), links };
+    let historical_snapshot = Steve {
+        task: fetched.task,
+        content: markdown,
+        fetch_time: chrono::Utc::now().timestamp(),
+        links,
+    };
 
     // let historical_snapshot = HistoricalSnapshot {
     //     content_markdown: vec![HistoricalContent {
@@ -144,19 +150,10 @@ async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> 
     Ok((historical_snapshot, discovered_links))
 }
 
-// Raise priority if page of same article
-fn get_priority(source: &str, target: &str) -> i32 {
-    if common::url::remove_pagination_params(source) == common::url::remove_pagination_params(target) {
-        10
-    } else {
-        0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::types::FetchTask;
+    use common::types::{FetchTask, Priority};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -168,7 +165,7 @@ mod tests {
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,
@@ -191,7 +188,7 @@ mod tests {
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,
@@ -233,7 +230,7 @@ mod tests {
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,

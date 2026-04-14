@@ -12,7 +12,32 @@ use crate::{
 };
 
 pub type ArticleId = i64;
+pub const DEFAULT_PRIORITY: i32 = 0;
+pub const ARTICLE_PRIORITY: i32 = 10;
 
+#[derive(
+    Clone, Debug, Default, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum Priority {
+    #[default]
+    Normal = 0,
+    Article = 10,
+}
+impl rusqlite::types::ToSql for Priority {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from((*self).clone() as u8))
+    }
+}
+impl rusqlite::types::FromSql for Priority {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        u8::column_result(value).and_then(|as_u8| match as_u8 {
+            0 => Ok(Priority::Normal),
+            10 => Ok(Priority::Article),
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        })
+    }
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
     #[serde(default)]
@@ -22,7 +47,7 @@ pub struct FetchTask {
     pub url: String,
 
     pub depth: u32,
-    pub priority: i32,
+    pub priority: Priority,
 
     pub discovered_from: Option<i64>,
 }
@@ -99,7 +124,7 @@ mod tests {
             url_id: 1,
             url: "http://foo.com".to_string(),
             depth: 0,
-            priority: 1,
+            priority: Priority::default(),
             discovered_from: None,
         };
         let t2 = t1.clone();
@@ -127,7 +152,7 @@ mod tests {
             url_id: 42,
             url: "http://example.com".to_string(),
             depth: 1,
-            priority: 5,
+            priority: Priority::default(),
             discovered_from: Some(1),
         }
     }
@@ -279,7 +304,7 @@ mod tests {
                 url_id: 1,
                 url: "http://example.com/".to_string(), // trailing slash
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: None,
@@ -301,7 +326,7 @@ mod tests {
                 url_id: 1,
                 url: "not a valid url%%%".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: None,

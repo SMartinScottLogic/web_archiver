@@ -80,7 +80,7 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> 
 mod tests {
     use super::*;
     use common::historical::{HistoricalPage, HistoricalSnapshot};
-    use common::types::{ExtractedPage, FetchTask, PageMetadata};
+    use common::types::{ExtractedPage, FetchTask, PageMetadata, Priority};
     use std::fs::{self, File};
     use std::io::Read;
     use tempfile::tempdir;
@@ -92,7 +92,7 @@ mod tests {
                 url_id: 1,
                 url: url.to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("content".to_string()),
@@ -115,7 +115,14 @@ mod tests {
         let snapshot = HistoricalSnapshot::from_extracted_page(base_page);
 
         let url = url.to_string();
-        let mut page = HistoricalPage::new(FetchTask { url, url_id: 0, article_id: 0, depth: 0, priority: 0, discovered_from: None });
+        let mut page = HistoricalPage::new(FetchTask {
+            url,
+            url_id: 0,
+            article_id: 0,
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        });
         page.add_snapshot(snapshot);
         page
     }

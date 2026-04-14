@@ -11,7 +11,7 @@ use tracing::{debug, info};
 use common::{
     Archiver,
     historical::HistoricalPage,
-    types::{ExtractedPage, FetchTask, PageMetadata},
+    types::{ExtractedPage, FetchTask, PageMetadata, Priority},
 };
 
 pub mod weird;
@@ -74,11 +74,11 @@ fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error>
 
     let page = ExtractedPage {
         task: FetchTask {
-                article_id: 0,
+            article_id: 0,
             url_id,
             url,
             depth: u32::MAX,
-            priority: 0,
+            priority: Priority::default(),
             discovered_from,
         },
         content_markdown: Some(markdown),

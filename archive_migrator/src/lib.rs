@@ -120,7 +120,7 @@ pub fn ensure_complete_in_db(page: &dyn PageReader, conn: &mut Connection) -> Re
 mod tests {
     use super::*;
     use common::historical::{HistoricalContent, HistoricalContentType, HistoricalSnapshot};
-    use common::types::FetchTask;
+    use common::types::{FetchTask, Priority};
     use rusqlite::Connection;
     use std::collections::{HashSet, VecDeque};
     use std::fs::{self, File};
@@ -171,7 +171,7 @@ mod tests {
                 url_id: 0,
                 url: "https://example.com/".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Example content".to_string()),
@@ -210,7 +210,7 @@ mod tests {
                 url_id: 0,
                 url: "https://example.com/".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Example content".to_string()),
@@ -248,7 +248,7 @@ mod tests {
                 url_id: 0,
                 url: "https://example.com/".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             current: Some(HistoricalSnapshot {
@@ -302,7 +302,7 @@ mod tests {
                 url_id: 0,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             current: Some(HistoricalSnapshot {
@@ -357,7 +357,7 @@ mod tests {
                 url_id: 0,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             current: Some(HistoricalSnapshot {
@@ -428,8 +428,16 @@ mod tests {
         let snapshot = make_snapshot("https://example.com");
 
         page.expect_current().return_const(Some(snapshot.clone()));
-        page.expect_task().return_const(FetchTask { article_id: 0, url_id: 0, url: "task url - unused".to_string(), depth: 0, priority: 0, discovered_from: None });
-        page.expect_url().return_const("https://example.com".to_string());
+        page.expect_task().return_const(FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "task url - unused".to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        });
+        page.expect_url()
+            .return_const("https://example.com".to_string());
 
         ensure_complete_in_db(&page, &mut conn).unwrap();
 
@@ -474,8 +482,16 @@ mod tests {
         let snapshot = make_snapshot("https://example.com");
 
         page.expect_current().return_const(Some(snapshot.clone()));
-        page.expect_task().return_const(FetchTask { article_id: 0, url_id: 0, url: "task url - unused".to_string(), depth: 0, priority: 0, discovered_from: None });
-        page.expect_url().return_const("https://example.com".to_string());
+        page.expect_task().return_const(FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "task url - unused".to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        });
+        page.expect_url()
+            .return_const("https://example.com".to_string());
 
         ensure_complete_in_db(&page, &mut conn).unwrap();
 

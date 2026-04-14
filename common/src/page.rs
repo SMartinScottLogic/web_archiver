@@ -176,7 +176,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::types::{FetchTask, PageMetadata};
+    use crate::types::{FetchTask, PageMetadata, Priority};
 
     #[test]
     fn test_extracted_page_reader_basic() {
@@ -186,7 +186,7 @@ mod tests {
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Content".to_string()),
@@ -217,7 +217,7 @@ mod tests {
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: None,
@@ -231,7 +231,14 @@ mod tests {
 
     #[test]
     fn test_historical_page_reader_basic() {
-        let mut page = HistoricalPage::new(FetchTask { article_id: 0, url_id: 0, url: "https://example.com".to_string(), depth: 0, priority: 0, discovered_from: None });
+        let mut page = HistoricalPage::new(FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "https://example.com".to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        });
 
         let snapshot = HistoricalSnapshot {
             // task: FetchTask {
@@ -271,7 +278,14 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_historical_page_reader_multiple_snapshots() {
-        let mut page = HistoricalPage::new(FetchTask { article_id: 0, url_id: 0, url: "https://example.com".to_string(), depth: 0, priority: 0, discovered_from: None });
+        let mut page = HistoricalPage::new(FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "https://example.com".to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+        });
 
         let snapshot1 = HistoricalSnapshot {
             // task: FetchTask {
@@ -305,7 +319,9 @@ mod tests {
             // },
             content_markdown: vec![HistoricalContent {
                 page: 1,
-                content: HistoricalContentType::Literal("content version Two, with enhanced details".to_string()),
+                content: HistoricalContentType::Literal(
+                    "content version Two, with enhanced details".to_string(),
+                ),
             }],
             links: HashSet::from(["https://link2.com".to_string()]),
             metadata: Some(PageMetadata {
@@ -335,7 +351,7 @@ mod tests {
                 url_id: 1,
                 url: "https://example.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             content_markdown: Some("Content".to_string()),
