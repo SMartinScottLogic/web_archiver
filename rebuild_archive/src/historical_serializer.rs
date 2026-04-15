@@ -9,6 +9,7 @@ use common::types::{FetchTask, Priority};
 use chrono::offset::Utc;
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
+use tracing::debug;
 
 use crate::aggregator::AggregateKey;
 use crate::multi_page_merger::MergedSnapshot;
@@ -50,27 +51,6 @@ impl<T: Archiver> HistoricalSerializer<T> {
         Self { archiver }
     }
 
-    // /// Converts a MergedSnapshot back to an ExtractedPage-like structure suitable for HistoricalSnapshot.
-    // /// The merged_content replaces the original content_markdown.
-    // fn merged_snapshot_to_historical_snapshot_old(
-    //     merged_snapshot: &MergedSnapshot,
-    //     year_month: (u32, u32),
-    // ) -> HistoricalSnapshot {
-    //     let mut base_page = merged_snapshot.base_page.clone();
-    //     // Replace content with merged content
-    //     base_page.content_markdown = Some(merged_snapshot.content.clone());
-    //     // Replace links with merged links
-    //     base_page.links = merged_snapshot.all_links.iter().cloned().collect();
-    //     // Update fetch_time metadata to reflect the month
-    //     if let Some(ref mut metadata) = base_page.metadata {
-    //         // Keep the original fetch_time but mark it as a merged snapshot
-    //         // The year_month tuple is implicit in the grouping
-    //         metadata.fetch_time = timestamp_to_year_month_inverse(year_month);
-    //     }
-
-    //     HistoricalSnapshot::from_extracted_page(base_page)
-    // }
-
     fn merged_snapshot_to_historical_snapshot(
         merged_snapshot: &MergedSnapshot,
         year_month: (u32, u32),
@@ -109,7 +89,6 @@ impl<T: Archiver> HistoricalSerializer<T> {
         aggregates: &HashMap<AggregateKey, Vec<MergedSnapshot>>,
     ) -> anyhow::Result<usize> {
         let mut files_written = 0;
-
         for (key, merged_snapshots) in aggregates {
             // Create a HistoricalPage for this domain+URL combination
             let fetch_task = FetchTask {
@@ -139,11 +118,13 @@ impl<T: Archiver> HistoricalSerializer<T> {
 
                 let snapshot =
                     Self::merged_snapshot_to_historical_snapshot(merged_snapshot, year_month);
-                page.add_snapshot(snapshot);
+                debug!(?snapshot.links, "to merge");
+                page.add_snapshot(snapshot)?;
             }
-
+            debug!(?page.all_links, "pre consolidation");
             // Consolidate all links
             page.consolidate_links();
+            debug!(?page.all_links, "post consolidation");
 
             // Serialize to disk
             self.archiver.store_page(&page)?;

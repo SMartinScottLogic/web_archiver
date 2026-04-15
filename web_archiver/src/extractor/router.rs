@@ -18,9 +18,8 @@ use tracing::{Level, debug, error, event_enabled, info, warn};
 
 use crate::frontier::db::frontier::FrontierDb;
 
-// TODO Remove unused classes, rename this to something reasonable
 #[derive(Clone, Debug)]
-pub struct Steve {
+pub struct FetchedArticlePage {
     pub task: FetchTask,
     pub content: String,
     pub fetch_time: i64,
@@ -30,7 +29,7 @@ pub struct Steve {
 }
 
 pub struct Router<T: Archiver> {
-    active: HashMap<ArticleId, (mpsc::Sender<Steve>, String)>,
+    active: HashMap<ArticleId, (mpsc::Sender<FetchedArticlePage>, String)>,
     max_active: usize,
     archiver: T,
     done_tx: mpsc::Sender<ArticleId>,
@@ -65,7 +64,7 @@ impl ArticleState {
         self.pages.iter().all(|(_url, &fetched)| fetched)
     }
 
-    fn apply(&mut self, page: Steve) {
+    fn apply(&mut self, page: FetchedArticlePage) {
         let page_number = match common::url::extract_page(&page.task.url) {
             common::url::Page::Number(page_number) => page_number,
             _ => 1,
@@ -144,7 +143,7 @@ impl ArticleState {
             info!(?self.filename, "finalize");
         }
         let article_id = self.task.article_id;
-        // 1. Read from archive; or create empty record
+        // 1. Read from archive, or create empty record
         let mut historical_page = File::open(&self.filename)
             .context("opening")
             .map(BufReader::new)
@@ -164,7 +163,7 @@ impl ArticleState {
             .content_markdown
             .sort_by_cached_key(|page| page.page);
         // 2b Add to historical page
-        historical_page.add_snapshot(self.snapshot);
+        historical_page.add_snapshot(self.snapshot)?;
         // 3. Save resultant file to archive (overwriting)
         historical_page
             .write_page(&self.filename)
@@ -200,7 +199,7 @@ impl<T: Archiver> Router<T> {
         self.active.remove(&article_id);
     }
 
-    pub async fn route(&mut self, mut page: Steve) {
+    pub async fn route(&mut self, mut page: FetchedArticlePage) {
         let article_id = page.task.article_id;
         loop {
             // Case 1: already active
@@ -250,7 +249,7 @@ async fn article_actor(
     article_id: ArticleId,
     filename: PathBuf,
     task: FetchTask,
-    mut rx: mpsc::Receiver<Steve>,
+    mut rx: mpsc::Receiver<FetchedArticlePage>,
     done_tx: mpsc::Sender<ArticleId>,
     db: FrontierDb,
 ) {

@@ -4,7 +4,6 @@ use reqwest::Response;
 
 use futures_util::StreamExt;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum TextLimitedError {
     Reqwest(reqwest::Error),

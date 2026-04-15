@@ -116,31 +116,6 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            // if !is_http_url(&link) {
-            //     trace!("Skipping non-http link: {}", link);
-            //     continue;
-            // }
-            // // Only allow links whose domain is in allowed_domains
-            // if let Some(domain) = extract_domain(&link) {
-            //     let matching_domains = self.get_matching_domains(&domain);
-            //     if matching_domains.is_empty() {
-            //         trace!("Skipping link outside allowed domains: {}", link);
-            //         continue;
-            //     } else {
-            //         debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
-            //     }
-
-            //     // Check robots.txt rules
-            //     if !self.is_url_allowed(&link, &domain).await {
-            //         debug!("Skipping link blocked by robots.txt: {}", link);
-            //         continue;
-            //     } else {
-            //         trace!("Link permitted by robots.txt: {}", link);
-            //     }
-            // } else {
-            //     trace!("Skipping link with no domain: {}", link);
-            //     continue;
-            // }
             if self.should_crawl(&link.url).await {
                 batch.push(FetchTask {
                     article_id: 0, // Will be set by DB

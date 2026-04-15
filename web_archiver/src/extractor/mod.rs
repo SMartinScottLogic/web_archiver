@@ -8,7 +8,7 @@ pub struct FetchedPage {
     pub task: FetchTask,
     pub status_code: u16,
     pub content_type: Option<String>,
-    pub fetch_time: u64,
+    pub fetch_time: i64,
     pub body: std::sync::Arc<Vec<u8>>,
 }
 

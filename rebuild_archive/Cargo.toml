@@ -22,3 +22,6 @@ itertools = { workspace = true }
 [dependencies.common]
 path = "../common"
 features = []
+
+[lints]
+clippy = { too_many_arguments = "warn", too_many_lines = "warn" }

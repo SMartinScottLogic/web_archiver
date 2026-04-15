@@ -1,8 +1,6 @@
 use anyhow::Result;
 use common::settings::CONFIG_FILE;
-//use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use qdrant_client::Qdrant;
-//use rust_bert::pipelines::sentence_embeddings::{SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType};
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use vector_indexer::{

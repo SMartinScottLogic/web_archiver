@@ -65,7 +65,7 @@ mod tests {
         let t1 = FetchTask {
             article_id: 1,
             url_id: 1,
-            url: "http://foo.com".to_string(),
+            url: "https://foo.com".to_string(),
             depth: 0,
             priority: Priority::default(),
             discovered_from: None,

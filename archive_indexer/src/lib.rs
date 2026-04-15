@@ -104,7 +104,7 @@ mod tests {
             priority: Priority::default(),
             discovered_from: None,
         });
-        page.add_snapshot(snapshot);
+        page.add_snapshot(snapshot).unwrap();
         page
     }
 

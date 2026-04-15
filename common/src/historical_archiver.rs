@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use tracing::debug;
+
 use crate::{
     Archiver,
     page::PageReader,
@@ -19,6 +21,7 @@ impl HistoricalArchiver {
 impl Archiver for HistoricalArchiver {
     fn store_page(&self, page: &dyn PageReader) -> anyhow::Result<PathBuf> {
         let path = self.generate_filename(page)?;
+        debug!(?path, "store_page");
         page.write(&path)?;
         Ok(path)
     }

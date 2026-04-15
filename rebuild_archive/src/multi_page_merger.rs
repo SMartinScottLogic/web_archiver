@@ -46,7 +46,6 @@ fn fetch_time_to_year_month(fetch_time: u64) -> (u32, u32) {
 /// A snapshot result after merging multi-page articles.
 /// Contains the merged content and combined links.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct MergedSnapshot {
     /// The base page (first page or lowest page number)
     pub base_page: ExtractedPage,
@@ -55,6 +54,7 @@ pub struct MergedSnapshot {
     /// All links collected from all pages (order preserved from merging)
     pub all_links: HashSet<String>,
     /// Number of pages merged (1 if no merging occurred)
+    #[allow(dead_code)] // Actually used in tests
     pub page_count: usize,
 }
 

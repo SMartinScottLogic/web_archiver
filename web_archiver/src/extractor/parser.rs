@@ -10,12 +10,12 @@ use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, trace};
 
-use crate::extractor::router::Steve;
+use crate::extractor::router::FetchedArticlePage;
 use crate::extractor::{DiscoveredLink, DiscoveredLinks, FetchedPage};
 
 pub async fn extractor_loop(
     mut rx: Receiver<FetchedPage>,
-    tx_storage: Sender<Steve>,
+    tx_storage: Sender<FetchedArticlePage>,
     tx_frontier: Sender<DiscoveredLinks>,
 ) {
     while let Some(fetched) = rx.recv().await {
@@ -52,7 +52,7 @@ lazy_static! {
     };
 }
 
-async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> {
+async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, DiscoveredLinks)> {
     let html = String::from_utf8_lossy(&fetched.body);
     let document = Html::parse_document(&html);
 
@@ -108,10 +108,10 @@ async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> 
         .select(&Selector::parse("title").unwrap())
         .next()
         .map(|e| e.text().collect::<String>());
-    let historical_snapshot = Steve {
+    let historical_snapshot = FetchedArticlePage {
         task: fetched.task,
         content: markdown,
-        fetch_time: chrono::Utc::now().timestamp(),
+        fetch_time: fetched.fetch_time,
         links,
         title,
         document_metadata: meta,
@@ -215,7 +215,7 @@ mod tests {
         extractor_loop(rx_fetched, tx_storage.clone(), tx_frontier.clone()).await;
 
         // Check that outputs were sent
-        let extracted: Steve = rx_storage.try_recv().unwrap();
+        let extracted: FetchedArticlePage = rx_storage.try_recv().unwrap();
         let discovered: DiscoveredLinks = rx_frontier.try_recv().unwrap();
         assert_eq!("Text", extracted.content);
         assert_eq!(discovered.links.len(), 1);

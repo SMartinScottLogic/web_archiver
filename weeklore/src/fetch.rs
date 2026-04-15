@@ -6,6 +6,6 @@ pub async fn fetch_url(url: &str) -> anyhow::Result<String> {
         .build()
         .unwrap();
     let res = client.get(url).send().await?;
-    //let res = reqwest::get(url).await?;
+
     Ok(res.text_limited(100_000).await?)
 }

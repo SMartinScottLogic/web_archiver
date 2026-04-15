@@ -7,7 +7,6 @@ use qdrant_client::{
     },
 };
 
-//use rust_bert::pipelines::sentence_embeddings::SentenceEmbeddingsModel;
 use tracing::{error, info};
 
 use vector_common::{Embedder, candle_bert::CandleBert};
@@ -80,10 +79,6 @@ pub fn load_embedding_model() -> impl Embedder {
     // ---------------------------
     // Initialize embedding model
     // ---------------------------
-
-    //let mut model = SentenceEmbeddingsBuilder::remote(SentenceEmbeddingsModelType::AllMiniLmL6V2).create_model() ?;
-
-    //let mut embedder = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
 
     CandleBert::new()
 }

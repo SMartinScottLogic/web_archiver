@@ -1,5 +1,4 @@
 use anyhow::Context;
-//use fastembed::TextEmbedding;
 use mockall::automock;
 use qdrant_client::{
     qdrant::{Condition, Filter, QueryPointsBuilder, QueryResponse},
@@ -52,7 +51,6 @@ pub async fn perform_search(
     // ---------------------------
     let embedding = embedder.embed(vec![config.query.clone()], None)?;
 
-    //let embedding = embedder.embed(vec![config.query.clone()], None)?;
     let query_vector = embedding[0].clone();
 
     let query_request = build_query(&config, query_vector);

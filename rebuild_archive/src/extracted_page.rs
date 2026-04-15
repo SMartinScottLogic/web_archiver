@@ -8,7 +8,6 @@ use anyhow::Context as _;
 
 use common::{
     historical::{HistoricalContent, HistoricalContentType, HistoricalPage, HistoricalSnapshot},
-    page::PageReader,
     types::{FetchTask, PageMetadata},
     url::canonicalize_url,
 };
@@ -63,26 +62,6 @@ impl From<ExtractedPage> for HistoricalPage {
     }
 }
 
-/*
-impl HistoricalSnapshot {
-    /// Convert a single ExtractedPage into a HistoricalSnapshot
-    pub fn from_extracted_page(page: ExtractedPage) -> Self {
-        Self {
-            //task: page.task,
-            content_markdown: match page.content_markdown {
-                Some(t) => vec![HistoricalContent {
-                    page: 1,
-                    content: HistoricalContentType::Literal(t),
-                }],
-                None => Vec::new(),
-            },
-            links: page.links.into_iter().collect(),
-            metadata: page.metadata,
-        }
-    }
-}
-*/
-
 impl From<ExtractedPage> for HistoricalSnapshot {
     fn from(page: ExtractedPage) -> Self {
         Self {
@@ -97,52 +76,6 @@ impl From<ExtractedPage> for HistoricalSnapshot {
             links: page.links.into_iter().collect(),
             metadata: page.metadata,
         }
-    }
-}
-
-impl PageReader for ExtractedPage {
-    fn url(&self) -> &str {
-        &self.task.url
-    }
-
-    fn task(&self) -> &FetchTask {
-        &self.task
-    }
-
-    fn set_url(&mut self, url: &str) {
-        self.task.url = url.to_string();
-    }
-
-    fn current(&self) -> &Option<HistoricalSnapshot> {
-        todo!("convert ExtractedPage to HistoricalSnapshot?");
-    }
-
-    fn current_mut(&mut self) -> Option<&mut HistoricalSnapshot> {
-        todo!("convert ExtractedPage to HistoricalSnapshot?")
-    }
-
-    fn snapshots(&mut self) -> &[HistoricalSnapshot] {
-        // For ExtractedPage, we conceptually have a single snapshot
-        // but we can't return it without allocating, so return empty
-        // Callers should use ExtractedPageExt::as_snapshots() instead
-        &[]
-    }
-
-    fn all_links(&self) -> HashSet<String> {
-        self.links.iter().cloned().collect()
-    }
-
-    fn fetch_time(&self) -> u64 {
-        self.metadata.as_ref().map(|m| m.fetch_time).unwrap_or(0)
-    }
-
-    fn latest_fetch_time(&self) -> u64 {
-        // For a single extracted page, the fetch time is also the latest
-        self.fetch_time()
-    }
-
-    fn write(&self, path: &Path) -> anyhow::Result<()> {
-        self.write_page(path)
     }
 }
 
@@ -184,6 +117,24 @@ mod tests {
             depth: 1,
             priority: Priority::default(),
             discovered_from: Some(1),
+        }
+    }
+    impl ExtractedPage {
+        fn url(&self) -> &str {
+            &self.task.url
+        }
+
+        fn all_links(&self) -> HashSet<String> {
+            self.links.iter().cloned().collect()
+        }
+
+        fn fetch_time(&self) -> u64 {
+            self.metadata.as_ref().map(|m| m.fetch_time).unwrap_or(0)
+        }
+
+        fn latest_fetch_time(&self) -> u64 {
+            // For a single extracted page, the fetch time is also the latest
+            self.fetch_time()
         }
     }
 
@@ -394,8 +345,6 @@ mod tests {
 
         let snapshot = HistoricalSnapshot::from(extracted.clone());
 
-        // assert_eq!(snapshot.task.url_id, 1);
-        // assert_eq!(snapshot.task.url, "https://example.com");
         assert_eq!(
             snapshot.content_markdown,
             vec![HistoricalContent {

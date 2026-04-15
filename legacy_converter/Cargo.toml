@@ -24,3 +24,6 @@ path = "../common"
 
 [dev-dependencies]
 mockall = { workspace = true }
+
+[lints]
+clippy = { too_many_arguments = "warn", too_many_lines = "warn" }

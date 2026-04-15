@@ -17,3 +17,6 @@ candle-core = "0.10.2"         # Minimalist ML framework.
 hf-hub = "0.5.0"                    # This crates aims ease the interaction with huggingface It aims to be compatible with the hu…
 
 [dev-dependencies]
+
+[lints]
+clippy = { too_many_arguments = "warn", too_many_lines = "warn" }

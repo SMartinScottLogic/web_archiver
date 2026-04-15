@@ -40,7 +40,7 @@ fn main() -> Result<()> {
     info!("archive_dir: {}", config.archive_dir);
     info!("target_dir: {}", config.target_dir);
 
-    let reader = ArchiveReader::new(&config.archive_dir, &config.target_dir);
+    let reader = ArchiveReader::new(&config.archive_dir);
 
     // Phase 1: Lightweight metadata scan (memory-efficient)
     info!("Scanning archive metadata (phase 1)...");
@@ -164,13 +164,14 @@ fn main() -> Result<()> {
             }
 
             info!(
-                "[{}/{}] Domain {} URL {}/{}: {} pages",
+                "[{}/{}] Domain {} URL {}/{}: {} pages for {}",
                 url_index + 1,
                 urls_in_domain,
                 domain,
                 url_index + 1,
                 urls_in_domain,
-                url_page_infos.len()
+                url_page_infos.len(),
+                normalized_url
             );
 
             // Load only this URL's pages (deferred from metadata scan)
@@ -227,34 +228,38 @@ fn main() -> Result<()> {
             }
 
             // Serialize this URL and free memory immediately
-            let url_files_written = if config.update {
-                serializer.serialize_all(&url_merged_snapshots_by_key)?
-            } else {
-                url_merged_snapshots_by_key.len()
-            };
-            global_files_written += url_files_written;
-
-            // Cleanup source files after successful serialization if requested
-            if config.cleanup && config.update {
-                for page_info in url_page_infos {
-                    match std::fs::remove_file(&page_info.path) {
-                        Ok(_) => {
-                            info!(
-                                path = ?page_info.path,
-                                "cleaned up source file"
-                            );
-                            global_files_deleted += 1;
-                        }
-                        Err(error) => {
-                            warn!(
-                                path = ?page_info.path,
-                                error = %error,
-                                "failed to remove source file during cleanup"
-                            );
+            let (url_files_written, url_files_failed) = if config.update {
+                if let Ok(count) = serializer.serialize_all(&url_merged_snapshots_by_key) {
+                    // Cleanup source files after successful serialization if requested
+                    if config.cleanup && config.update {
+                        for page_info in url_page_infos {
+                            match std::fs::remove_file(&page_info.path) {
+                                Ok(_) => {
+                                    info!(
+                                        path = ?page_info.path,
+                                        "cleaned up source file"
+                                    );
+                                    global_files_deleted += 1;
+                                }
+                                Err(error) => {
+                                    warn!(
+                                        path = ?page_info.path,
+                                        error = %error,
+                                        "failed to remove source file during cleanup"
+                                    );
+                                }
+                            }
                         }
                     }
+                    (count, 0)
+                } else {
+                    (0, url_page_infos.len())
                 }
-            }
+            } else {
+                (url_merged_snapshots_by_key.len(), 0)
+            };
+            global_files_written += url_files_written;
+            global_files_failed += url_files_failed;
 
             // Memory freed: aggregator, merged_snapshots, url_page_infos dropped
         }

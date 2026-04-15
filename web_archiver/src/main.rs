@@ -23,7 +23,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use common::settings::CONFIG_FILE;
 use settings::Config;
 
-use crate::extractor::router::{Router, Steve};
+use crate::extractor::router::{FetchedArticlePage, Router};
 use crate::extractor::{DiscoveredLinks, FetchedPage};
 
 /// Initialize logging ---
@@ -69,7 +69,7 @@ async fn main() {
     // Worker → Extractor
     let (tx_fetched, rx_fetched) = mpsc::channel::<FetchedPage>(100);
     // Extractor → Storage
-    let (tx_extracted, mut rx_extracted) = mpsc::channel::<Steve>(100);
+    let (tx_extracted, mut rx_extracted) = mpsc::channel::<FetchedArticlePage>(100);
     // Storage → Frontier
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
@@ -92,6 +92,7 @@ async fn main() {
     let sem = Arc::new(Semaphore::new(max_concurrent));
 
     tokio::spawn({
+        let archive_time = config.archive_time;
         let tx_fetched_clone = tx_fetched.clone();
         let sem = Arc::clone(&sem);
         async move {
@@ -100,7 +101,7 @@ async fn main() {
                 let permit = sem.clone().acquire_owned().await.unwrap();
                 let user_agent = config.user_agent.clone();
                 tokio::spawn(async move {
-                    worker_loop_single(task, &user_agent, tx_fetched_task).await;
+                    worker_loop_single(task, archive_time, &user_agent, tx_fetched_task).await;
                     drop(permit); // release semaphore
                 });
             }
@@ -116,9 +117,6 @@ async fn main() {
     // --- 7. Spawn Storage Task ---
     let archiver = DefaultArchiver::new(PathBuf::from(config.archive_dir));
     let storage_db = FrontierDb::new(db_arc.clone());
-    // tokio::spawn(async move {
-    //     storage_loop(archiver, rx_extracted, storage_db).await;
-    // });
 
     let (tx_done, mut rx_done) = mpsc::channel::<ArticleId>(100);
 

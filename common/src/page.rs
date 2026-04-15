@@ -16,9 +16,6 @@ pub trait PageReader {
     /// Get the fetch details for this page
     fn task(&self) -> &FetchTask;
 
-    /// Set the canonical URL for this page
-    fn set_url(&mut self, url: &str);
-
     /// Get current snapshot for this page
     fn current(&self) -> &Option<HistoricalSnapshot>;
 
@@ -52,11 +49,6 @@ impl PageReader for HistoricalPage {
 
     fn task(&self) -> &FetchTask {
         &self.task
-    }
-
-    fn set_url(&mut self, url: &str) {
-        self.task.url = url.to_string();
-        // TODO what to do about task.url_id, etc?
     }
 
     fn current(&self) -> &Option<HistoricalSnapshot> {
@@ -146,7 +138,7 @@ mod tests {
             }),
         };
 
-        page.add_snapshot(snapshot);
+        page.add_snapshot(snapshot).unwrap();
 
         assert_eq!(page.url(), "https://example.com");
         assert!(page.current.is_some());
@@ -214,8 +206,8 @@ mod tests {
             }),
         };
 
-        page.add_snapshot(snapshot1);
-        page.add_snapshot(snapshot2);
+        page.add_snapshot(snapshot1).unwrap();
+        page.add_snapshot(snapshot2).unwrap();
 
         assert!(page.current.is_some());
         assert_eq!(page.snapshots().len(), 1);

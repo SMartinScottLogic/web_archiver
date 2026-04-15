@@ -13,7 +13,6 @@ pub struct AggregateKey {
 }
 
 /// A page entry with optional page number for multi-page merging
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PageEntry {
     pub page: ExtractedPage,
@@ -81,27 +80,8 @@ impl ArchiveAggregator {
     }
 
     /// Get the aggregated pages, consuming the aggregator
-    #[allow(dead_code)]
     pub fn into_aggregates(self) -> HashMap<AggregateKey, Vec<PageEntry>> {
         self.aggregates
-    }
-
-    /// Get a reference to the aggregates
-    #[allow(dead_code)]
-    pub fn aggregates(&self) -> &HashMap<AggregateKey, Vec<PageEntry>> {
-        &self.aggregates
-    }
-
-    /// Get the number of unique URLs
-    #[allow(dead_code)]
-    pub fn unique_urls(&self) -> usize {
-        self.aggregates.len()
-    }
-
-    /// Get the total number of pages across all aggregates
-    #[allow(dead_code)]
-    pub fn total_pages(&self) -> usize {
-        self.aggregates.values().map(|v| v.len()).sum()
     }
 }
 
@@ -139,20 +119,12 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregator_new() {
-        let agg = ArchiveAggregator::new();
-        assert_eq!(agg.unique_urls(), 0);
-        assert_eq!(agg.total_pages(), 0);
-    }
-
-    #[test]
     fn test_aggregator_add_single_page() {
         let mut agg = ArchiveAggregator::new();
         let page = make_page("http://example.com/article", 100);
 
         assert!(agg.add_page(page));
-        assert_eq!(agg.unique_urls(), 1);
-        assert_eq!(agg.total_pages(), 1);
+        assert_eq!(agg.aggregates.len(), 1);
     }
 
     #[test]
@@ -165,11 +137,12 @@ mod tests {
         agg.add_page(page2);
 
         assert_eq!(
-            agg.unique_urls(),
+            agg.aggregates.len(),
             1,
             "Multi-page articles should consolidate to single URL"
         );
-        assert_eq!(agg.total_pages(), 2);
+        let total_pages = agg.aggregates.values().map(|v| v.len()).sum::<usize>();
+        assert_eq!(total_pages, 2);
     }
 
     #[test]
@@ -181,8 +154,10 @@ mod tests {
         agg.add_page(page1);
         agg.add_page(page2);
 
-        assert_eq!(agg.unique_urls(), 2);
-        assert_eq!(agg.total_pages(), 2);
+        assert_eq!(agg.aggregates.len(), 2);
+        let total_pages = agg.aggregates.values().map(|v| v.len()).sum::<usize>();
+
+        assert_eq!(total_pages, 2);
     }
 
     #[test]
@@ -206,7 +181,7 @@ mod tests {
         agg.add_page(page1);
         agg.add_page(page2);
 
-        assert_eq!(agg.unique_urls(), 2);
+        assert_eq!(agg.aggregates.len(), 2);
     }
 
     #[test]
@@ -216,6 +191,6 @@ mod tests {
         page.task.url = "not a url".to_string();
 
         assert!(!agg.add_page(page));
-        assert_eq!(agg.unique_urls(), 0);
+        assert_eq!(agg.aggregates.len(), 0);
     }
 }

@@ -625,7 +625,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
- "simhash",
  "tempfile",
  "tokio",
  "tracing",
@@ -4016,15 +4015,6 @@ name = "simd-adler32"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
-
-[[package]]
-name = "simhash"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9628dcb1d2bb7446ad04e2c6c765d9eff363b9b8a88033303dabbcc9dd60c02"
-dependencies = [
- "siphasher 0.3.11",
-]
 
 [[package]]
 name = "siphasher"

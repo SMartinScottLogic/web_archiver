@@ -5,7 +5,12 @@ use tracing::{debug, error, info};
 
 use crate::extractor::FetchedPage;
 
-pub async fn worker_loop_single(task: FetchTask, user_agent: &str, tx: Sender<FetchedPage>) {
+pub async fn worker_loop_single(
+    task: FetchTask,
+    archive_time: i64,
+    user_agent: &str,
+    tx: Sender<FetchedPage>,
+) {
     let client = reqwest::Client::builder()
         .user_agent(user_agent)
         .build()
@@ -19,7 +24,7 @@ pub async fn worker_loop_single(task: FetchTask, user_agent: &str, tx: Sender<Fe
                 task,
                 status_code: 200,
                 content_type: None,
-                fetch_time: chrono::Utc::now().timestamp() as u64,
+                fetch_time: archive_time,
                 body: std::sync::Arc::new(body),
             };
             debug!("Fetched page successfully: {}", url);
@@ -55,7 +60,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_page_invalid_url() {
         let client = reqwest::Client::new();
-        let result = fetch_page(&client, "http://invalid.example.com").await;
+        let result = fetch_page(&client, "https://invalid.example.com").await;
         assert!(result.is_err());
     }
 
@@ -74,7 +79,7 @@ mod tests {
             discovered_from: None,
         };
         let (tx, mut rx) = mpsc::channel(1);
-        worker_loop_single(task, "test", tx).await;
+        worker_loop_single(task, 0, "test", tx).await;
         // Should receive a FetchedPage
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);

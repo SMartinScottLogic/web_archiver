@@ -21,3 +21,6 @@ path = "../common"
 [dev-dependencies]
 tracing-test = { workspace = true }
 wiremock = { workspace = true }
+
+[lints]
+clippy = { too_many_arguments = "warn", too_many_lines = "warn" }
