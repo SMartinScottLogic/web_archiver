@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::ops::Add;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use common::Archiver;
 use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
 use common::types::{FetchTask, Priority};
-use common::url::url_to_filename;
 
 use chrono::offset::Utc;
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
@@ -41,16 +40,14 @@ pub fn is_leap_year(year: u32) -> bool {
 /// - Creating HistoricalPage objects for each URL/domain combination
 /// - Consolidating links across all snapshots
 /// - Serializing to JSON files in the target directory structure
-pub struct HistoricalSerializer {
-    /// Target directory where HistoricalPage JSON files will be written
-    pub target_dir: PathBuf,
+pub struct HistoricalSerializer<T: Archiver> {
+    /// Archiver to use to add articles to the document store
+    archiver: T,
 }
 
-impl HistoricalSerializer {
-    pub fn new(target_dir: impl Into<PathBuf>) -> Self {
-        Self {
-            target_dir: target_dir.into(),
-        }
+impl<T: Archiver> HistoricalSerializer<T> {
+    pub fn new(archiver: T) -> Self {
+        Self { archiver }
     }
 
     // /// Converts a MergedSnapshot back to an ExtractedPage-like structure suitable for HistoricalSnapshot.
@@ -148,24 +145,13 @@ impl HistoricalSerializer {
             // Consolidate all links
             page.consolidate_links();
 
-            // Generate output path: target_dir/{domain}/{url_hash}.json
-            // TODO Switch to use an Archiver
-            let output_path = self.generate_output_path(&key.normalized_url);
-
             // Serialize to disk
-            page.write_page(&output_path)?;
+            self.archiver.store_page(&page)?;
+
             files_written += 1;
         }
 
         Ok(files_written)
-    }
-
-    /// Generate output path for a historical page based on domain and URL.
-    /// Pattern: {target_dir}/{domain}/{url_filename}.json
-    /// Each URL gets a unique file based on the URL itself (filesystem-safe approximation).
-    fn generate_output_path(&self, normalized_url: &str) -> PathBuf {
-        let url_filename = url_to_filename(normalized_url);
-        self.target_dir.join(format!("{}.json", url_filename))
     }
 }
 
@@ -176,7 +162,9 @@ mod tests {
     use crate::multi_page_merger::SnapshotPage;
 
     use super::*;
-    use common::{historical::HistoricalContentType, types::FetchTask, url::hash_url};
+    use common::{
+        DefaultArchiver, historical::HistoricalContentType, types::FetchTask, url::hash_url,
+    };
 
     #[test]
     fn test_year_month_to_timestamp_epoch() {
@@ -199,35 +187,6 @@ mod tests {
         // Test roundtrip for February
         let (year, month) = timestamp_to_year_month(2678400);
         assert_eq!((year, month), (1970, 2));
-    }
-
-    #[test]
-    fn test_historical_serializer_creation() {
-        let serializer = HistoricalSerializer::new("/tmp/test");
-        assert_eq!(serializer.target_dir, PathBuf::from("/tmp/test"));
-    }
-
-    #[test]
-    fn test_output_path_generation() {
-        let serializer = HistoricalSerializer::new("/tmp/test");
-        let path = serializer.generate_output_path("https://example.com/page1");
-        // Path should be: /tmp/test/example.com/{url_filename}.json
-        assert!(path.to_string_lossy().contains("example.com"));
-        assert!(path.to_string_lossy().ends_with(".json"));
-        assert!(path.to_string_lossy().contains("example.com/page1")); // URL should be approximated in filename
-    }
-
-    #[test]
-    fn test_output_path_unique_per_url() {
-        let serializer = HistoricalSerializer::new("/tmp/test");
-        let path1 = serializer.generate_output_path("https://example.com/page1");
-        let path2 = serializer.generate_output_path("https://example.com/page2");
-
-        // Different URLs should generate different paths
-        assert_ne!(path1, path2);
-        // But both should be in same domain directory
-        assert!(path1.to_string_lossy().contains("example.com"));
-        assert!(path2.to_string_lossy().contains("example.com"));
     }
 
     #[test]
@@ -281,10 +240,11 @@ mod tests {
             page_count: 2,
         };
 
-        let snapshot = HistoricalSerializer::merged_snapshot_to_historical_snapshot(
-            &merged_snapshot,
-            (1970, 2),
-        );
+        let snapshot =
+            HistoricalSerializer::<DefaultArchiver>::merged_snapshot_to_historical_snapshot(
+                &merged_snapshot,
+                (1970, 2),
+            );
 
         assert_eq!(
             snapshot.content_markdown,

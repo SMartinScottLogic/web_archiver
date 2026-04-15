@@ -17,3 +17,7 @@ tracing-subscriber = { workspace = true }
 
 [dependencies.common]
 path = "../common"
+
+[dev-dependencies]
+tracing-test = { workspace = true }
+wiremock = { workspace = true }

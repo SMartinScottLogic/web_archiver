@@ -18,12 +18,15 @@ use tracing::{Level, debug, error, event_enabled, info, warn};
 
 use crate::frontier::db::frontier::FrontierDb;
 
+// TODO Remove unused classes, rename this to something reasonable
 #[derive(Clone, Debug)]
 pub struct Steve {
     pub task: FetchTask,
     pub content: String,
     pub fetch_time: i64,
     pub links: HashSet<String>,
+    pub title: Option<String>,
+    pub document_metadata: Vec<HashMap<String, String>>,
 }
 
 pub struct Router<T: Archiver> {
@@ -93,7 +96,7 @@ impl ArticleState {
         if !batch.is_empty() {
             let _ = self
                 .db
-                .enqueue_batch(&batch)
+                .enqueue_batch(&batch, false)
                 .inspect_err(|e| error!("failed enqueuing {:?}", e));
         }
 
@@ -103,16 +106,22 @@ impl ArticleState {
         };
         self.snapshot.content_markdown.push(content);
 
-        // Setup metadata
-        if self.snapshot.metadata.is_none() {
-            self.snapshot.metadata = Some(PageMetadata {
-                status_code: StatusCode::OK.as_u16(),
-                content_type: None,
-                fetch_time: page.fetch_time.try_into().unwrap_or_default(),
-                title: None,
-                document_metadata: None,
-            })
-        }
+        // Setup metadata - use first found page for everything, replace title with page 1
+        match &mut self.snapshot.metadata {
+            None => {
+                self.snapshot.metadata = Some(PageMetadata {
+                    status_code: StatusCode::OK.as_u16(),
+                    content_type: None,
+                    fetch_time: page.fetch_time.try_into().unwrap_or_default(),
+                    title: page.title.clone(),
+                    document_metadata: Some(page.document_metadata.clone()),
+                });
+            }
+            Some(metadata) if page_number == 1 => {
+                metadata.title = page.title.clone();
+            }
+            Some(_metadata) => {}
+        };
 
         debug!(?self.filename, ?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
     }
@@ -134,6 +143,7 @@ impl ArticleState {
         } else {
             info!(?self.filename, "finalize");
         }
+        let article_id = self.task.article_id;
         // 1. Read from archive; or create empty record
         let mut historical_page = File::open(&self.filename)
             .context("opening")
@@ -156,8 +166,13 @@ impl ArticleState {
         // 2b Add to historical page
         historical_page.add_snapshot(self.snapshot);
         // 3. Save resultant file to archive (overwriting)
-        historical_page.write_page(&self.filename)
-        // TODO 4. Update db
+        historical_page
+            .write_page(&self.filename)
+            .inspect_err(|err| error!("Failed to write to {:?}: {:?}", self.filename, err))?;
+        // 4. Update db
+        self.db
+            .mark_complete_article(article_id)
+            .map_err(anyhow::Error::from)
     }
 
     fn is_page(&self, url: &str) -> bool {

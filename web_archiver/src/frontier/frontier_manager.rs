@@ -34,7 +34,8 @@ impl FrontierManager {
         db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
         let db = FrontierDb::new(db_conn.clone());
-        // Reset in_progress tasks (so they can be restarted)
+        // Reset in_progress tasks (so they can be restarted), and
+        // priority to default (they are not part of an active article yet)
         let updated = db
             .reset_in_progress()
             .expect("Failed to reset in_progress tasks");
@@ -44,7 +45,7 @@ impl FrontierManager {
         for url in seed_urls {
             if let Some(canonical) = canonicalize_url(&url) {
                 seeds.push(FetchTask {
-                    article_id: 0, // TODO Ensure set by DB
+                    article_id: 0, // Will be set by DB
                     url_id: 0,     // Will be set by DB
                     url: canonical,
                     depth: 0,
@@ -54,9 +55,8 @@ impl FrontierManager {
             }
         }
         if !seeds.is_empty() {
-            // TODO - FORCE priority
             let _ = db
-                .enqueue_batch(&seeds)
+                .enqueue_batch(&seeds, true)
                 .inspect_err(|e| error!("enqueue seeds failed {:?}", e));
         }
         Self {
@@ -143,7 +143,7 @@ impl FrontierManager {
             // }
             if self.should_crawl(&link.url).await {
                 batch.push(FetchTask {
-                    article_id: 0, // TODO Ensure set by DB
+                    article_id: 0, // Will be set by DB
                     url_id: 0,     // Will be set by DB
                     url: link.url,
                     depth: msg.depth,
@@ -155,7 +155,7 @@ impl FrontierManager {
         if !batch.is_empty() {
             let _ = self
                 .db
-                .enqueue_batch(&batch)
+                .enqueue_batch(&batch, false)
                 .inspect_err(|e| error!("failed enqueuing {:?}", e));
         }
     }

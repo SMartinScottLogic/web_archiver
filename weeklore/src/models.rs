@@ -1,8 +1,10 @@
 use anyhow::Context;
 use common::markdown::html_to_markdown;
 
+use crate::chunk::chunk_text;
 use crate::llm::Category;
-use crate::{chunk::chunk_text, llm::LlmClient};
+use crate::llm::classify::LlmClassify;
+use crate::llm::client::LlmSummarise;
 
 // models.rs
 #[derive(Debug, Clone)]
@@ -44,13 +46,16 @@ impl Article {
 }
 
 impl ExtractedArticle {
-    pub async fn process(
+    pub async fn process<L>(
         self,
-        llm: &LlmClient,
+        llm: &L,
         chunk_prompt: &str,
         reduce_prompt: &str,
         classify_prompt: &str,
-    ) -> anyhow::Result<ProcessedArticle> {
+    ) -> anyhow::Result<ProcessedArticle>
+    where
+        L: LlmClassify + LlmSummarise,
+    {
         let chunks = chunk_text(&self.text, 3000);
 
         println!("process url: {:?}", self.url);
@@ -115,5 +120,167 @@ impl ProcessedArticle {
         }
 
         output
+    }
+}
+
+#[cfg(test)]
+mod mocks {
+    use super::*;
+    use crate::llm::{Category, client::LlmSummarise};
+
+    pub struct MockLlmClient;
+
+    impl LlmSummarise for MockLlmClient {
+        async fn summarise(&self, _prompt: &str, input: &str) -> anyhow::Result<Vec<String>> {
+            Ok(vec![format!("summary of {}", input)])
+        }
+    }
+
+    impl LlmClassify for MockLlmClient {
+        async fn classify(&self, _prompt: &str, _input: &str) -> anyhow::Result<Category> {
+            Ok(Category {
+                category: "test".to_string(),
+                subcategories: vec!["sub1".to_string()],
+                additional_categories: vec!["extra".to_string()],
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_article_extract() {
+        let article = Article {
+            url: "http://example.com".to_string(),
+            html: "<p>Hello</p>".to_string(),
+        };
+
+        let extracted = article.extract();
+
+        assert_eq!(extracted.url, "http://example.com");
+        assert!(extracted.text.contains("Hello"));
+    }
+
+    #[tokio::test]
+    async fn test_process_article_basic() {
+        use mocks::MockLlmClient;
+
+        let extracted = ExtractedArticle {
+            url: "http://example.com".to_string(),
+            text: "This is a test article.".to_string(),
+        };
+
+        let llm = MockLlmClient;
+
+        let result = extracted
+            .process(&llm, "chunk", "reduce", "classify")
+            .await
+            .unwrap();
+
+        assert_eq!(result.url, "http://example.com");
+        assert_eq!(result.category(), "test");
+        assert!(!result.summary.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_multiple_chunks() {
+        use mocks::MockLlmClient;
+
+        let long_text = "a".repeat(10_000); // force multiple chunks
+
+        let extracted = ExtractedArticle {
+            url: "http://example.com".to_string(),
+            text: long_text,
+        };
+
+        let llm = MockLlmClient;
+
+        let result = extracted
+            .process(&llm, "chunk", "reduce", "classify")
+            .await
+            .unwrap();
+
+        assert!(!result.summary.is_empty());
+    }
+
+    #[test]
+    fn test_category_accessor() {
+        let article = ProcessedArticle {
+            url: "url".to_string(),
+            title: "title".to_string(),
+            summary: vec![],
+            category: Category {
+                category: "news".to_string(),
+                subcategories: vec![],
+                additional_categories: vec![],
+            },
+        };
+
+        assert_eq!(article.category(), "news");
+    }
+
+    #[test]
+    fn test_summary_with_url() {
+        let article = ProcessedArticle {
+            url: "http://example.com".to_string(),
+            title: "title".to_string(),
+            summary: vec!["point1".to_string(), "point2".to_string()],
+            category: Category {
+                category: "test".to_string(),
+                subcategories: vec![],
+                additional_categories: vec![],
+            },
+        };
+
+        let output = article.summary_with_url();
+
+        assert!(output.contains("http://example.com"));
+        assert!(output.contains("point1"));
+        assert!(output.contains("point2"));
+    }
+
+    #[test]
+    fn test_bullet_formatting() {
+        let article = ProcessedArticle {
+            url: "http://example.com".to_string(),
+            title: "Test Title".to_string(),
+            summary: vec!["bullet1".to_string()],
+            category: Category {
+                category: "main".to_string(),
+                subcategories: vec!["sub1".to_string()],
+                additional_categories: vec!["extra1".to_string()],
+            },
+        };
+
+        let output = article.bullet();
+
+        assert!(output.contains("### Test Title"));
+        assert!(output.contains("Source: http://example.com"));
+        assert!(output.contains("sub1"));
+        assert!(output.contains("extra1"));
+        assert!(output.contains("- bullet1"));
+    }
+
+    #[test]
+    fn test_bullet_empty_fields() {
+        let article = ProcessedArticle {
+            url: "url".to_string(),
+            title: "title".to_string(),
+            summary: vec![],
+            category: Category {
+                category: "main".to_string(),
+                subcategories: vec![],
+                additional_categories: vec![],
+            },
+        };
+
+        let output = article.bullet();
+
+        assert!(output.contains("### title"));
+        assert!(!output.contains("Sub-Categories"));
+        assert!(!output.contains("Additional Categories"));
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::settings::CONFIG_FILE;
+use common::{DefaultArchiver, settings::CONFIG_FILE};
 use itertools::Itertools;
 use settings::Config;
 use tracing::{debug, info, level_filters::LevelFilter, warn};
@@ -106,7 +106,8 @@ fn main() -> Result<()> {
     }
 
     // Phase 2-5: Process each domain separately, then by URL within domain
-    let serializer = HistoricalSerializer::new(&config.target_dir);
+    let archiver = DefaultArchiver::new(config.target_dir.into());
+    let serializer = HistoricalSerializer::new(archiver);
     let mut global_files_read = 0;
     let mut global_files_failed = 0;
     let mut global_unique_urls = 0;

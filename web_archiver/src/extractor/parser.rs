@@ -104,47 +104,18 @@ async fn extract_page(fetched: FetchedPage) -> Result<(Steve, DiscoveredLinks)> 
         depth: next_depth,
     };
 
-    // TODO Add page title, etc to `Steve`
+    let title = document
+        .select(&Selector::parse("title").unwrap())
+        .next()
+        .map(|e| e.text().collect::<String>());
     let historical_snapshot = Steve {
         task: fetched.task,
         content: markdown,
         fetch_time: chrono::Utc::now().timestamp(),
         links,
+        title,
+        document_metadata: meta,
     };
-
-    // let historical_snapshot = HistoricalSnapshot {
-    //     content_markdown: vec![HistoricalContent {
-    //         content: common::historical::HistoricalContentType::Literal(markdown),
-    //         page: u32::MAX,
-    //     }],
-    //     links,
-    //     metadata: Some(PageMetadata {
-    //         status_code: 200,
-    //         content_type: None,
-    //         fetch_time: chrono::Utc::now().timestamp() as u64,
-    //         title: document
-    //             .select(&Selector::parse("title").unwrap())
-    //             .next()
-    //             .map(|e| e.text().collect::<String>()),
-    //         document_metadata: Some(meta),
-    //     }),
-    // };
-
-    // let extracted_page = ExtractedPage {
-    //     task: fetched.task.clone(),
-    //     content_markdown: Some(markdown),
-    //     links: links.clone(),
-    //     metadata: Some(PageMetadata {
-    //         status_code: 200,
-    //         content_type: None,
-    //         fetch_time: chrono::Utc::now().timestamp() as u64,
-    //         title: document
-    //             .select(&Selector::parse("title").unwrap())
-    //             .next()
-    //             .map(|e| e.text().collect::<String>()),
-    //         document_metadata: Some(meta),
-    //     }),
-    // };
 
     debug!("Extractor done");
 
@@ -201,17 +172,16 @@ mod tests {
         assert_eq!("Text", extracted.content);
         assert_eq!(discovered.links.len(), 1);
         assert!(discovered.links[0].url.contains("foo.com/bar"));
-        // TODO Document metadata
-        // let document_metadata = extracted.metadata.unwrap().document_metadata.unwrap();
-        // assert_eq!(document_metadata.len(), 1);
-        // assert_eq!(
-        //     document_metadata[0].get("name"),
-        //     Some("test".to_string()).as_ref()
-        // );
-        // assert_eq!(
-        //     document_metadata[0].get("content"),
-        //     Some("test content".to_string()).as_ref()
-        // );
+        let document_metadata = extracted.document_metadata;
+        assert_eq!(document_metadata.len(), 1);
+        assert_eq!(
+            document_metadata[0].get("name"),
+            Some("test".to_string()).as_ref()
+        );
+        assert_eq!(
+            document_metadata[0].get("content"),
+            Some("test content".to_string()).as_ref()
+        );
     }
 
     #[tokio::test]

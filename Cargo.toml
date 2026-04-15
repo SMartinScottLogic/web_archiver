@@ -54,3 +54,4 @@ base64 = "0.22.1"                # encodes and decodes base64 as bytes or utf8
 zstd = "0.13"
 #rust-bert = "0.23.0"
 itertools = "0.14.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.
+wiremock = "0.6.5"                     # HTTP mocking to test Rust applications.

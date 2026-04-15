@@ -10,7 +10,6 @@ mod extractor;
 mod fetcher;
 mod frontier;
 mod settings;
-mod storage;
 
 use extractor::parser::extractor_loop;
 use fetcher::worker::worker_loop_single;
@@ -26,8 +25,6 @@ use settings::Config;
 
 use crate::extractor::router::{Router, Steve};
 use crate::extractor::{DiscoveredLinks, FetchedPage};
-
-const MAX_ACTIVE_ARTICLES: usize = 10;
 
 /// Initialize logging ---
 fn setup_logging() {
@@ -125,7 +122,7 @@ async fn main() {
 
     let (tx_done, mut rx_done) = mpsc::channel::<ArticleId>(100);
 
-    let mut router = Router::new(archiver, storage_db, tx_done, MAX_ACTIVE_ARTICLES);
+    let mut router = Router::new(archiver, storage_db, tx_done, max_concurrent * 2);
 
     // Router event loop
     tokio::spawn(async move {

@@ -50,7 +50,8 @@ fn test_enqueue_and_claim() {
         priority: Priority::default(),
         discovered_from: None,
     };
-    db.enqueue_batch(std::slice::from_ref(&task)).unwrap();
+    db.enqueue_batch(std::slice::from_ref(&task), false)
+        .unwrap();
     let claimed = db.claim_next().unwrap().unwrap();
     assert_eq!(claimed.url, task.url);
     assert_eq!(claimed.depth, task.depth);
@@ -85,7 +86,7 @@ fn test_enqueue_batch_deduplication() {
         priority: Priority::default(),
         discovered_from: Some(2),
     };
-    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()])
+    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()], false)
         .unwrap();
     // Only two unique URLs should be present
     let mut seen = vec![];
@@ -119,7 +120,7 @@ fn test_mark_complete_and_counts() {
         priority: Priority::default(),
         discovered_from: None,
     };
-    db.enqueue_batch(&[t1.clone(), t2.clone()]).unwrap();
+    db.enqueue_batch(&[t1.clone(), t2.clone()], false).unwrap();
     let c1 = db.claim_next().unwrap().unwrap();
     db.mark_complete(c1.url_id).unwrap();
     assert_eq!(db.count_fetched().unwrap(), 1);

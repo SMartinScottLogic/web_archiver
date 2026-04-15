@@ -1,3 +1,4 @@
+use common::types::Priority;
 use common::url::extract_domain;
 use common::{types::FetchTask, url::remove_pagination_params};
 use rusqlite::{Connection, Result, params};
@@ -19,15 +20,15 @@ impl FrontierDb {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let updated = tx.execute(
-            "UPDATE frontier SET status = 'pending' WHERE status = 'in_progress'",
-            params![],
+            "UPDATE frontier SET status = 'pending', priority = ?1 WHERE status = 'in_progress'",
+            params![Priority::default()],
         )?;
         tx.commit()?;
         Ok(updated)
     }
 
     /// Batch insert fetch tasks (deduplication by URL)
-    pub fn enqueue_batch(&self, tasks: &[FetchTask]) -> Result<()> {
+    pub fn enqueue_batch(&self, tasks: &[FetchTask], force_priority: bool) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         for task in tasks {
@@ -56,9 +57,19 @@ impl FrontierDb {
                 VALUES (?1, ?2, ?3, ?4, 'pending')
                 ON CONFLICT(url_id) DO UPDATE SET
                     depth = MIN(frontier.depth, excluded.depth),
-                    priority = MAX(frontier.priority, excluded.priority);
+                    priority = CASE
+                        WHEN ?5 THEN excluded.priority
+                        WHEN excluded.priority > frontier.priority THEN excluded.priority
+                        ELSE frontier.priority
+                    END;
                 "#,
-                params![url_id, task.priority, task.depth, task.discovered_from],
+                params![
+                    url_id,
+                    task.priority,
+                    task.depth,
+                    task.discovered_from,
+                    force_priority
+                ],
             )?;
         }
         tx.commit()?;
@@ -131,6 +142,22 @@ impl FrontierDb {
         conn.execute(
             "UPDATE frontier SET status = 'complete' WHERE url_id = ?1",
             params![url_id],
+        )?;
+        Ok(())
+    }
+
+    /// Mark all URLs in an article as complete in the frontier
+    pub fn mark_complete_article(&self, article_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"UPDATE frontier
+            SET status = 'complete'
+            WHERE url_id IN (
+                SELECT id
+                FROM urls
+                WHERE article_id = ?1
+            );"#,
+            params![article_id],
         )?;
         Ok(())
     }
