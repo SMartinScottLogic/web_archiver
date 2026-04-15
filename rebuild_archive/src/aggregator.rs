@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use common::types::ExtractedPage;
 use common::url::extract_domain;
 
 use common::url::{extract_page, normalize_url_for_merge};
+use rebuild_archive::extracted_page::ExtractedPage;
 
 /// A key for grouping pages by (domain, normalized_url)
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

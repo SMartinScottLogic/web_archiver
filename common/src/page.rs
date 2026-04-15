@@ -3,10 +3,8 @@ use std::path::Path;
 
 use mockall::automock;
 
-use crate::historical::{
-    HistoricalContent, HistoricalContentType, HistoricalPage, HistoricalSnapshot,
-};
-use crate::types::{ExtractedPage, FetchTask};
+use crate::historical::{HistoricalPage, HistoricalSnapshot};
+use crate::types::FetchTask;
 
 /// A trait for reading page data, abstracting over both ExtractedPage and HistoricalPage.
 /// This enables crates to work with either type without knowing which concrete implementation they have.
@@ -45,52 +43,6 @@ pub trait PageReader {
 
     /// Write the page to the supplied path
     fn write(&self, path: &Path) -> anyhow::Result<()>;
-}
-
-impl PageReader for ExtractedPage {
-    fn url(&self) -> &str {
-        &self.task.url
-    }
-
-    fn task(&self) -> &FetchTask {
-        &self.task
-    }
-
-    fn set_url(&mut self, url: &str) {
-        self.task.url = url.to_string();
-    }
-
-    fn current(&self) -> &Option<HistoricalSnapshot> {
-        todo!("convert ExtractedPage to HistoricalSnapshot?");
-    }
-
-    fn current_mut(&mut self) -> Option<&mut HistoricalSnapshot> {
-        todo!("convert ExtractedPage to HistoricalSnapshot?")
-    }
-
-    fn snapshots(&mut self) -> &[HistoricalSnapshot] {
-        // For ExtractedPage, we conceptually have a single snapshot
-        // but we can't return it without allocating, so return empty
-        // Callers should use ExtractedPageExt::as_snapshots() instead
-        &[]
-    }
-
-    fn all_links(&self) -> HashSet<String> {
-        self.links.iter().cloned().collect()
-    }
-
-    fn fetch_time(&self) -> u64 {
-        self.metadata.as_ref().map(|m| m.fetch_time).unwrap_or(0)
-    }
-
-    fn latest_fetch_time(&self) -> u64 {
-        // For a single extracted page, the fetch time is also the latest
-        self.fetch_time()
-    }
-
-    fn write(&self, path: &Path) -> anyhow::Result<()> {
-        self.write_page(path)
-    }
 }
 
 impl PageReader for HistoricalPage {
@@ -148,86 +100,15 @@ impl PageReader for HistoricalPage {
     }
 }
 
-/// Extension trait for converting ExtractedPage to a temporary PageReader-compatible form
-pub trait ExtractedPageExt {
-    /// Get snapshots from this ExtractedPage as a single-element vec
-    fn as_snapshots(&self) -> Vec<HistoricalSnapshot>;
-}
-
-impl ExtractedPageExt for ExtractedPage {
-    fn as_snapshots(&self) -> Vec<HistoricalSnapshot> {
-        vec![HistoricalSnapshot {
-            //task: self.task.clone(),
-            content_markdown: match self.content_markdown.as_ref() {
-                Some(md) => vec![HistoricalContent {
-                    page: 1,
-                    content: HistoricalContentType::Literal(md.to_owned()),
-                }],
-                None => Vec::new(),
-            },
-            links: self.links.iter().cloned().collect(),
-            metadata: self.metadata.clone(),
-        }]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::types::{FetchTask, PageMetadata, Priority};
-
-    #[test]
-    fn test_extracted_page_reader_basic() {
-        let page = ExtractedPage {
-            task: FetchTask {
-                article_id: 0,
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: Priority::default(),
-                discovered_from: None,
-            },
-            content_markdown: Some("Content".to_string()),
-            links: vec![
-                "https://link1.com".to_string(),
-                "https://link2.com".to_string(),
-            ],
-            metadata: Some(PageMetadata {
-                status_code: 200,
-                content_type: Some("text/html".to_string()),
-                fetch_time: 1000,
-                title: Some("Page".to_string()),
-                document_metadata: None,
-            }),
-        };
-
-        assert_eq!(page.url(), "https://example.com");
-        assert_eq!(page.all_links().len(), 2);
-        assert_eq!(page.fetch_time(), 1000);
-        assert_eq!(page.latest_fetch_time(), 1000);
-    }
-
-    #[test]
-    fn test_extracted_page_reader_no_metadata() {
-        let page = ExtractedPage {
-            task: FetchTask {
-                article_id: 0,
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: Priority::default(),
-                discovered_from: None,
-            },
-            content_markdown: None,
-            links: vec![],
-            metadata: None,
-        };
-
-        assert_eq!(page.fetch_time(), 0);
-        assert_eq!(page.latest_fetch_time(), 0);
-    }
+    use crate::{
+        historical::{HistoricalContent, HistoricalContentType},
+        types::{FetchTask, PageMetadata, Priority},
+    };
 
     #[test]
     fn test_historical_page_reader_basic() {
@@ -341,32 +222,5 @@ mod tests {
         assert_eq!(page.fetch_time(), 1000); // oldest
         assert_eq!(page.latest_fetch_time(), 2000); // newest
         assert_eq!(page.all_links().len(), 2);
-    }
-
-    #[test]
-    fn test_extracted_page_as_snapshots() {
-        let page = ExtractedPage {
-            task: FetchTask {
-                article_id: 0,
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: Priority::default(),
-                discovered_from: None,
-            },
-            content_markdown: Some("Content".to_string()),
-            links: vec!["https://link.com".to_string()],
-            metadata: Some(PageMetadata {
-                status_code: 200,
-                content_type: None,
-                fetch_time: 1000,
-                title: None,
-                document_metadata: None,
-            }),
-        };
-
-        let snapshots = page.as_snapshots();
-        assert_eq!(snapshots.len(), 1);
-        assert_eq!(snapshots[0].links.len(), 1);
     }
 }

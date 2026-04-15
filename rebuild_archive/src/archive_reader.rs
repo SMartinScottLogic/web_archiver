@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{fs::File, time::Duration};
 
-use common::types::ExtractedPage;
 use indicatif::{ProgressBar, ProgressStyle};
+use rebuild_archive::extracted_page::ExtractedPage;
 use walkdir::WalkDir;
 
 /// Lightweight page metadata without content (for memory-efficient scanning)
@@ -125,6 +125,7 @@ impl ArchiveReader {
     }
 
     /// Load a single ExtractedPage from disk by path
+    // TODO Re-logic to also support HistoricalPage files
     pub fn load_page(&self, path: &PathBuf) -> Result<ExtractedPage, String> {
         match File::open(path) {
             Ok(file) => match serde_json::from_reader::<_, ExtractedPage>(file) {
@@ -160,6 +161,7 @@ impl ArchiveReader {
 
                 let path = entry.path().to_path_buf();
                 let result = match File::open(&path) {
+                    // TODO Re-logic to also support HistoricalPage files
                     Ok(file) => match serde_json::from_reader::<_, ExtractedPage>(file) {
                         Ok(page) => Ok(page),
                         Err(e) => Err(format!("Failed to deserialize JSON: {}", e)),

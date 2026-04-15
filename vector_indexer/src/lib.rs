@@ -4,7 +4,7 @@ pub mod vector_db;
 
 use std::{fs, path::Path};
 
-use common::{historical::HistoricalPage, page::PageReader, types::ExtractedPage};
+use common::{historical::HistoricalPage, page::PageReader};
 use map_macro::hash_map;
 use qdrant_client::qdrant::{PointStruct, UpsertPointsBuilder};
 use serde_json::json;
@@ -18,14 +18,14 @@ use crate::vector_db::VectorDb;
 const CHUNK_SIZE: usize = 500;
 const OVERLAP: usize = 96;
 
-fn read_page(path: &Path) -> anyhow::Result<Box<dyn PageReader>> {
+fn read_page<T>(path: &Path) -> anyhow::Result<T>
+where
+    T: PageReader + for<'a> serde::Deserialize<'a>,
+{
     let text = fs::read_to_string(path)?;
 
-    if let Ok(content) = serde_json::from_str::<ExtractedPage>(&text) {
-        return Ok(Box::new(content));
-    }
-    if let Ok(content) = serde_json::from_str::<HistoricalPage>(&text) {
-        return Ok(Box::new(content));
+    if let Ok(content) = serde_json::from_str::<T>(&text) {
+        return Ok(content);
     }
     Err(anyhow::Error::msg(format!(
         "Failed to parse {}",
@@ -33,8 +33,11 @@ fn read_page(path: &Path) -> anyhow::Result<Box<dyn PageReader>> {
     )))
 }
 
-fn current_content(path: &Path) -> Option<String> {
-    let content = match read_page(path) {
+fn current_content<T>(path: &Path) -> Option<String>
+where
+    T: PageReader + for<'a> serde::Deserialize<'a>,
+{
+    let content = match read_page::<T>(path) {
         Err(e) => {
             error!(
                 "Failed to convert content of {} into PageReader: {:?}",
@@ -107,7 +110,7 @@ pub async fn populate_vector_db(
 
         let path = entry.path();
 
-        let markdown = match current_content(path) {
+        let markdown = match current_content::<HistoricalPage>(path) {
             Some(text) => text,
             None => continue,
         };
@@ -163,7 +166,7 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         fs::write(file.path(), "not json").unwrap();
 
-        let result = read_page(file.path());
+        let result = read_page::<HistoricalPage>(file.path());
 
         assert!(result.is_err());
     }
@@ -173,7 +176,7 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         fs::write(file.path(), "invalid json").unwrap();
 
-        let result = current_content(file.path());
+        let result = current_content::<HistoricalPage>(file.path());
 
         assert!(result.is_none());
     }
@@ -190,7 +193,7 @@ mod tests {
 
         fs::write(file.path(), json.to_string()).unwrap();
 
-        let result = current_content(file.path());
+        let result = current_content::<HistoricalPage>(file.path());
 
         assert!(result.is_none());
     }
@@ -250,7 +253,7 @@ mod tests {
 
         fs::write(file.path(), json.to_string()).unwrap();
         println!("file: {}", file.path().display());
-        let result = current_content(file.path());
+        let result = current_content::<HistoricalPage>(file.path());
 
         assert!(result.is_some());
     }

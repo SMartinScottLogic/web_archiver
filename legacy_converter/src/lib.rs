@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -10,8 +10,8 @@ use tracing::{debug, info};
 
 use common::{
     Archiver,
-    historical::HistoricalPage,
-    types::{ExtractedPage, FetchTask, PageMetadata, Priority},
+    historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot},
+    types::{FetchTask, PageMetadata, Priority},
 };
 
 pub mod weird;
@@ -62,7 +62,7 @@ pub fn parse_unambiguous_date(s: &str) -> Result<u64, String> {
     }
 }
 
-fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error> {
+fn convert(path: &Path, fetch_time: u64) -> Result<HistoricalPage, anyhow::Error> {
     debug!(?path, "convert file");
     let text = fs::read_to_string(path)?;
     let content: LegacyStory = serde_json::from_str(&text)?;
@@ -72,7 +72,7 @@ fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error>
     let url_id = 0;
     let discovered_from = None;
 
-    let page = ExtractedPage {
+    let page = HistoricalPage {
         task: FetchTask {
             article_id: 0,
             url_id,
@@ -81,17 +81,24 @@ fn convert(path: &Path, fetch_time: u64) -> Result<ExtractedPage, anyhow::Error>
             priority: Priority::default(),
             discovered_from,
         },
-        content_markdown: Some(markdown),
-        links: content.links.into_iter().collect(),
-        metadata: Some(PageMetadata {
-            status_code: 200,
-            content_type: None,
-            fetch_time,
-            title: Some(content.title),
-            document_metadata: Some(vec![
-                hash_map! {"keywords".to_string() => content.keywords.join(",")},
-            ]),
+        current: Some(HistoricalSnapshot {
+            content_markdown: vec![HistoricalContent {
+                content: common::historical::HistoricalContentType::Literal(markdown),
+                page: 1,
+            }],
+            links: content.links.clone(),
+            metadata: Some(PageMetadata {
+                status_code: 200,
+                content_type: None,
+                fetch_time,
+                title: Some(content.title),
+                document_metadata: Some(vec![
+                    hash_map! {"keywords".to_string() => content.keywords.join(",")},
+                ]),
+            }),
         }),
+        historical_snapshots: VecDeque::new(),
+        all_links: content.links,
     };
     Ok(page)
 }
@@ -102,9 +109,8 @@ pub fn store_file(
     fetch_time: u64,
     delete_source: bool,
 ) -> Result<()> {
-    let converted: HistoricalPage = convert(path, fetch_time)
-        .or_else(|_| weird::read_file(path, fetch_time))?
-        .into();
+    let converted: HistoricalPage =
+        convert(path, fetch_time).or_else(|_| weird::read_file(path, fetch_time))?;
     // Save new file
     let destination = archiver.store_page(&converted)?;
     info!(source = ?path, ?destination, "page stored");
@@ -122,6 +128,7 @@ mod tests {
     use std::path::PathBuf;
 
     use common::MockArchiver;
+    use common::page::PageReader;
     use mockall::predicate::*;
 
     // ----------------------------
@@ -190,17 +197,37 @@ mod tests {
 
         let page = convert(&path, 12345).unwrap();
 
+        let current = page.current().as_ref();
+
         assert_eq!(page.task.url, "https://example.com");
         assert_eq!(
-            page.metadata.as_ref().unwrap().title.as_ref().unwrap(),
+            current
+                .unwrap()
+                .metadata
+                .as_ref()
+                .unwrap()
+                .title
+                .as_ref()
+                .unwrap(),
             "Test Title"
         );
 
-        let content = page.content_markdown.unwrap();
-        assert!(content.contains("para1"));
-        assert!(content.contains("para2"));
+        match &current.unwrap().content_markdown.first().unwrap().content {
+            common::historical::HistoricalContentType::Literal(content) => {
+                assert!(content.contains("para1"));
+                assert!(content.contains("para2"));
+            }
+            _ => panic!("invalid content type"),
+        };
 
-        let keywords = &page.metadata.unwrap().document_metadata.unwrap()[0]["keywords"];
+        let keywords = &current
+            .unwrap()
+            .metadata
+            .as_ref()
+            .unwrap()
+            .document_metadata
+            .clone()
+            .unwrap()[0]["keywords"];
         assert_eq!(keywords, "rust,parser");
 
         fs::remove_file(path).unwrap();

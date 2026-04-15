@@ -1,13 +1,14 @@
 use std::path::Path;
 
+use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
 use map_macro::hash_map;
 use nom::combinator::peek;
 use nom::multi::many0;
 use nom::sequence::pair;
 use nom::{Parser as _, combinator::recognize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use common::types::{ExtractedPage, FetchTask, PageMetadata, Priority};
+use common::types::{FetchTask, PageMetadata, Priority};
 
 use nom::bytes::complete::tag;
 use nom::character::complete::not_line_ending;
@@ -37,7 +38,7 @@ fn parse_story(input: &str) -> IResult<&str, (String, String, HashMap<String, St
 fn to_extracted_page(
     default_fetch_time: u64,
     (residue, (title, author, meta)): (&str, (String, String, HashMap<String, String>)),
-) -> ExtractedPage {
+) -> HistoricalPage {
     debug!("title: {}", title);
     debug!("author: {}", author);
     debug!("meta: {:?}", meta);
@@ -47,7 +48,7 @@ fn to_extracted_page(
     let fetch_time = meta.get("Packaged").cloned().unwrap_or_default();
     let fetch_time = parse_unambiguous_date(&fetch_time).unwrap_or(default_fetch_time);
 
-    let urls = meta
+    let urls: HashSet<String> = meta
         .iter()
         .filter(|(k, _v)| k.to_lowercase().ends_with("url"))
         .map(|(_k, v)| v)
@@ -69,17 +70,23 @@ fn to_extracted_page(
     let url_id = 0;
     let discovered_from = None;
 
-    let page = ExtractedPage {
-        content_markdown: Some(residue.to_string()),
-        metadata: Some(PageMetadata {
-            status_code: 200,
-            content_type: None,
-            fetch_time,
-            title: Some(title),
-            document_metadata: Some(vec![hash_map! {"keywords".to_string() => tags}]),
+    let page = HistoricalPage {
+        current: Some(HistoricalSnapshot {
+            content_markdown: vec![HistoricalContent {
+                content: common::historical::HistoricalContentType::Literal(residue.to_string()),
+                page: 1,
+            }],
+            links: urls.clone(),
+            metadata: Some(PageMetadata {
+                status_code: 200,
+                content_type: None,
+                fetch_time,
+                title: Some(title),
+                document_metadata: Some(vec![hash_map! {"keywords".to_string() => tags}]),
+            }),
         }),
-
-        links: urls,
+        historical_snapshots: VecDeque::new(),
+        all_links: urls,
         task: FetchTask {
             article_id: 0,
             url_id,
@@ -93,7 +100,7 @@ fn to_extracted_page(
     page
 }
 
-pub fn read_file(path: &Path, default_fetch_time: u64) -> anyhow::Result<ExtractedPage> {
+pub fn read_file(path: &Path, default_fetch_time: u64) -> anyhow::Result<HistoricalPage> {
     let file = std::fs::read_to_string(path)?
         // Normalise line endings (to UNIX format)
         .replace("\r\n", "\n");
@@ -184,6 +191,8 @@ fn metadata(input: &str) -> IResult<&str, HashMap<String, String>> {
 
 #[cfg(test)]
 mod tests {
+    use common::page::PageReader;
+
     use super::*;
     use std::fs;
     use std::path::PathBuf;
@@ -278,29 +287,25 @@ C: 3
         let parsed = parse_story(&input).unwrap();
         let page = to_extracted_page(12345, parsed);
 
-        let metadata = page.metadata.unwrap();
+        let current = page.current().as_ref().unwrap();
+
+        let metadata = current.metadata.clone().unwrap();
         assert_eq!(metadata.title.unwrap(), "My Story Title");
 
         // Check links extraction
-        assert!(
-            page.links
-                .contains(&"https://example.com/story".to_string())
-        );
-        assert!(
-            page.links
-                .contains(&"https://example.com/extra".to_string())
-        );
+        assert!(current.links.contains("https://example.com/story"));
+        assert!(current.links.contains("https://example.com/extra"));
 
         // Check tags normalization
         let keywords = &metadata.document_metadata.unwrap()[0]["keywords"];
         assert!(keywords.contains("rust parsing"));
 
         // Content present
-        assert!(
-            page.content_markdown
-                .unwrap()
-                .contains("This is the story content.")
-        );
+        let content = match &current.content_markdown.first().unwrap().content {
+            common::historical::HistoricalContentType::Literal(content) => content.to_owned(),
+            _ => panic!("unexpected content type"),
+        };
+        assert!(content.contains("This is the story content."));
     }
 
     #[test]
@@ -313,7 +318,14 @@ C: 3
         let result = read_file(&file_path, 9999).unwrap();
 
         assert_eq!(result.task.url, "https://example.com/story");
-        assert!(result.content_markdown.unwrap().contains("Second line."));
+        let current = result.current().as_ref().unwrap();
+
+        // Content present
+        let content = match &current.content_markdown.first().unwrap().content {
+            common::historical::HistoricalContentType::Literal(content) => content.to_owned(),
+            _ => panic!("unexpected content type"),
+        };
+        assert!(content.contains("Second line."));
 
         fs::remove_file(file_path).unwrap();
     }

@@ -1,7 +1,7 @@
 use anyhow::Result;
+use common::types::WithTask;
 use csv::{Writer, WriterBuilder};
 use indicatif::ProgressBar;
-use serde_json::Value;
 use std::fs::{File, read_dir};
 use std::path::Path;
 
@@ -25,28 +25,6 @@ pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressB
     Ok(())
 }
 
-/// Extract URL from either ExtractedPage or HistoricalPage JSON format
-/// Both formats have the URL at different locations:
-/// - ExtractedPage: task.url
-/// - HistoricalPage: url (at root level)
-fn extract_url_from_json(value: &Value) -> Option<String> {
-    // Try ExtractedPage format first (nested in task.url)
-    if let Some(url) = value
-        .get("task")
-        .and_then(|t| t.get("url"))
-        .and_then(|u| u.as_str())
-    {
-        return Some(url.to_string());
-    }
-
-    // Try HistoricalPage format (url at root level)
-    if let Some(url) = value.get("url").and_then(|u| u.as_str()) {
-        return Some(url.to_string());
-    }
-
-    None
-}
-
 /// Recursively scan a directory for JSON files and extract URLs
 fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> {
     for entry in read_dir(dir)? {
@@ -60,11 +38,10 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> 
 
             // Read JSON file to extract URL (format-agnostic)
             let file = File::open(&path)?;
-            match serde_json::from_reader::<_, Value>(file) {
+            match serde_json::from_reader::<_, WithTask>(file) {
                 Ok(value) => {
-                    if let Some(url) = extract_url_from_json(&value) {
-                        wtr.write_record(&[path.to_string_lossy().to_string(), url])?;
-                    }
+                    let url = value.task.url;
+                    wtr.write_record(&[path.to_string_lossy().to_string(), url])?;
                 }
                 Err(_) => {
                     // Skip files that can't be parsed as JSON
@@ -79,14 +56,15 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::historical::{HistoricalPage, HistoricalSnapshot};
-    use common::types::{ExtractedPage, FetchTask, PageMetadata, Priority};
+    use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
+    use common::types::{FetchTask, PageMetadata, Priority};
+    use std::collections::HashSet;
     use std::fs::{self, File};
     use std::io::Read;
     use tempfile::tempdir;
 
-    fn create_test_extracted_page(url: &str) -> ExtractedPage {
-        ExtractedPage {
+    fn create_test_extracted_page(url: &str) -> WithTask {
+        WithTask {
             task: FetchTask {
                 article_id: 1,
                 url_id: 1,
@@ -95,11 +73,19 @@ mod tests {
                 priority: Priority::default(),
                 discovered_from: None,
             },
-            content_markdown: Some("content".to_string()),
-            links: vec![
+        }
+    }
+
+    fn create_test_historical_page(url: &str) -> HistoricalPage {
+        let snapshot = HistoricalSnapshot {
+            content_markdown: vec![HistoricalContent {
+                page: 1,
+                content: common::historical::HistoricalContentType::Literal("content".to_string()),
+            }],
+            links: HashSet::from([
                 "https://example.com/link1".to_string(),
                 "https://example.com/link2".to_string(),
-            ],
+            ]),
             metadata: Some(PageMetadata {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
@@ -107,12 +93,7 @@ mod tests {
                 title: Some("Test".to_string()),
                 document_metadata: Some(vec![]),
             }),
-        }
-    }
-
-    fn create_test_historical_page(url: &str) -> HistoricalPage {
-        let base_page = create_test_extracted_page(url);
-        let snapshot = HistoricalSnapshot::from_extracted_page(base_page);
+        };
 
         let url = url.to_string();
         let mut page = HistoricalPage::new(FetchTask {
@@ -191,29 +172,6 @@ mod tests {
             .unwrap();
         assert!(csv_content.contains("json_file_path"));
         assert!(csv_content.contains("example.com/historical-test"));
-    }
-
-    #[test]
-    fn test_extract_url_from_extracted_page_format() {
-        let page = create_test_extracted_page("https://example.com/test1");
-        let value = serde_json::to_value(&page).unwrap();
-        let url = extract_url_from_json(&value);
-        assert_eq!(url, Some("https://example.com/test1".to_string()));
-    }
-
-    #[test]
-    fn test_extract_url_from_historical_page_format() {
-        let page = create_test_historical_page("https://example.com/test2");
-        let value = serde_json::to_value(&page).unwrap();
-        let url = extract_url_from_json(&value);
-        assert_eq!(url, Some("https://example.com/test2".to_string()));
-    }
-
-    #[test]
-    fn test_extract_url_from_invalid_json() {
-        let value = serde_json::json!({"no_url": "here"});
-        let url = extract_url_from_json(&value);
-        assert_eq!(url, None);
     }
 
     #[test]

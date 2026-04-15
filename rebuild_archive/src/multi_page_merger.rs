@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use common::types::ExtractedPage;
+use rebuild_archive::extracted_page::ExtractedPage;
 
 use crate::{aggregator::PageEntry, historical_serializer::is_leap_year};
 

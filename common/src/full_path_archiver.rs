@@ -10,7 +10,7 @@ use url::Url;
 use crate::{
     Archiver,
     page::PageReader,
-    types::ExtractedPage,
+    types::WithTask,
     url::{hash_url, sanitize_segment},
 };
 
@@ -141,7 +141,7 @@ impl Archiver for FullPathArchiver {
             // Check for same URL (collision vs duplicate)
             if let Some(existing) = File::open(&path)
                 .ok()
-                .and_then(|f| serde_json::from_reader::<_, ExtractedPage>(f).ok())
+                .and_then(|f| serde_json::from_reader::<_, WithTask>(f).ok())
                 && existing.task.url == *url_str
             {
                 // overwrite same URL
@@ -162,7 +162,7 @@ mod tests {
     use super::*;
     use crate::historical::HistoricalSnapshot;
     use crate::page::MockPageReader;
-    use crate::types::{ExtractedPage, FetchTask, PageMetadata, Priority};
+    use crate::types::{FetchTask, PageMetadata, Priority};
     use mockall::predicate::*;
     use std::collections::HashSet;
     use std::{fs, path::Path};
@@ -335,7 +335,7 @@ mod tests {
         mock1.expect_url().return_const(url.to_owned());
         mock1.expect_write().returning(|path| {
             fs::create_dir_all(path.parent().unwrap())?;
-            let page = ExtractedPage {
+            let page = WithTask {
                 task: FetchTask {
                     article_id: 0,
                     url_id: 1,
@@ -344,9 +344,6 @@ mod tests {
                     priority: Priority::default(),
                     discovered_from: None,
                 },
-                content_markdown: None,
-                links: vec![],
-                metadata: None,
             };
             let file = fs::File::create(path)?;
             serde_json::to_writer(file, &page)?;

@@ -3,7 +3,6 @@ members = [
     "common",
     "vector_common",
     "archive_indexer",
-    "archive_migrator",
     "hybrid_search",
     "legacy_converter",
     "web_archiver",

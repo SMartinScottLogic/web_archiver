@@ -8,7 +8,7 @@ use std::path::Path;
 use tracing::debug;
 
 use crate::compressed_string;
-use crate::types::{ExtractedPage, FetchTask, PageMetadata};
+use crate::types::{FetchTask, PageMetadata};
 
 /// A snapshot of a page at a specific point in time.
 /// Wraps all fields from ExtractedPage to preserve complete historical context.
@@ -255,30 +255,6 @@ impl HistoricalPage {
             .with_context(|| format!("Failed to write JSON to {:?}", path))?;
 
         Ok(())
-    }
-}
-
-impl HistoricalSnapshot {
-    /// Convert a single ExtractedPage into a HistoricalSnapshot
-    pub fn from_extracted_page(page: ExtractedPage) -> Self {
-        Self {
-            //task: page.task,
-            content_markdown: match page.content_markdown {
-                Some(t) => vec![HistoricalContent {
-                    page: 1,
-                    content: HistoricalContentType::Literal(t),
-                }],
-                None => Vec::new(),
-            },
-            links: page.links.into_iter().collect(),
-            metadata: page.metadata,
-        }
-    }
-}
-
-impl From<ExtractedPage> for HistoricalSnapshot {
-    fn from(page: ExtractedPage) -> Self {
-        HistoricalSnapshot::from_extracted_page(page)
     }
 }
 
@@ -598,69 +574,6 @@ mod tests {
         assert!(page.all_links.contains("https://link1.com"));
         assert!(page.all_links.contains("https://link2.com"));
         assert!(page.all_links.contains("https://link3.com"));
-    }
-
-    #[test]
-    fn test_snapshot_from_extracted_page() {
-        let extracted = ExtractedPage {
-            task: FetchTask {
-                article_id: 0,
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: Priority::default(),
-                discovered_from: None,
-            },
-            content_markdown: Some("Content".to_string()),
-            links: vec!["https://link.com".to_string()],
-            metadata: Some(PageMetadata {
-                status_code: 200,
-                content_type: Some("text/html".to_string()),
-                fetch_time: 1000,
-                title: Some("Title".to_string()),
-                document_metadata: None,
-            }),
-        };
-
-        let snapshot = HistoricalSnapshot::from_extracted_page(extracted.clone());
-
-        // assert_eq!(snapshot.task.url_id, 1);
-        // assert_eq!(snapshot.task.url, "https://example.com");
-        assert_eq!(
-            snapshot.content_markdown,
-            vec![HistoricalContent {
-                page: 1,
-                content: HistoricalContentType::Literal("Content".to_string())
-            }]
-        );
-        assert_eq!(snapshot.links.len(), 1);
-        assert_eq!(snapshot.metadata.as_ref().unwrap().status_code, 200);
-    }
-
-    #[test]
-    fn test_from_trait_for_snapshot() {
-        let extracted = ExtractedPage {
-            task: FetchTask {
-                article_id: 0,
-                url_id: 1,
-                url: "https://example.com".to_string(),
-                depth: 0,
-                priority: Priority::default(),
-                discovered_from: None,
-            },
-            content_markdown: Some("Example content".to_string()),
-            links: vec![],
-            metadata: None,
-        };
-
-        let snapshot: HistoricalSnapshot = extracted.into();
-        assert_eq!(
-            snapshot.content_markdown,
-            vec![HistoricalContent {
-                page: 1,
-                content: HistoricalContentType::Literal("Example content".to_string())
-            }]
-        );
     }
 
     #[test]

@@ -496,13 +496,17 @@ Phase 2f implemented per-URL optimization based on theoretical analysis. Phase 2
    - ✓ Test: crawl→store→index→search end-to-end
    - ✓ Validation gate: full pipeline works with new format
 
-3f. **Final: Archive Cleanup & Code Coverage** — NOT STARTED
+3f. **Final: Archive Cleanup & Code Coverage** — IN PROGRESS (2026-04-14)
    Quality Gate to apply:
-   - Full workspace `cargo check` passes
-   - All workspace tests pass
    - All TODO tasks resolved
    - Cleanup commented out code
    - Code coverage: Each workspace crate achieving ≥80% line coverage
+   - Full workspace `cargo check` passes
+   - Cargo cleanup successful
+     - Clean run of `cargo fmt`
+     - Clean run of `cargo clippy`
+   - All workspace tests pass
+   - Review all workspace binaries, clarify their role or deco
    - Documentation updated
    - Final git commit with migration completion notice
    

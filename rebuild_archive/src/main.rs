@@ -180,6 +180,7 @@ fn main() -> Result<()> {
 
             for page_info in url_page_infos {
                 match reader.load_page(&page_info.path) {
+                    // TODO Re-logic to also support HistoricalPage files
                     Ok(page) => {
                         pages_read += 1;
                         if !aggregator.add_page(page) {

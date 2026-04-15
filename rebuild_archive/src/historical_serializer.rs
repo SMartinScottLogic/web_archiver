@@ -165,6 +165,7 @@ mod tests {
     use common::{
         DefaultArchiver, historical::HistoricalContentType, types::FetchTask, url::hash_url,
     };
+    use rebuild_archive::extracted_page::ExtractedPage;
 
     #[test]
     fn test_year_month_to_timestamp_epoch() {
@@ -207,7 +208,7 @@ mod tests {
         use crate::multi_page_merger::MergedSnapshot;
         use common::types::PageMetadata;
 
-        let base_page = common::types::ExtractedPage {
+        let base_page = ExtractedPage {
             task: FetchTask {
                 article_id: 0,
                 url_id: 1,
