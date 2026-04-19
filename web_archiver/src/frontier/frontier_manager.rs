@@ -1,5 +1,5 @@
 use crate::extractor::DiscoveredLinks;
-use crate::frontier::db::frontier::FrontierDb;
+use crate::frontier::db::frontier::{FrontierDb, FrontierDbTrait};
 use common::settings::Host;
 use common::types::{FetchTask, Priority};
 use common::url::{canonicalize_url, extract_domain, is_http_url};
@@ -33,7 +33,7 @@ impl FrontierManager {
         hosts: Vec<Host>,
         db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
-        let db = FrontierDb::new(db_conn.clone());
+        let db = FrontierDb::connect(db_conn.clone());
         // Reset in_progress tasks (so they can be restarted), and
         // priority to default (they are not part of an active article yet)
         let updated = db
@@ -250,7 +250,7 @@ mod tests {
         cache.insert("foo.com".to_string(), None);
         cache.insert("example.com".to_string(), None);
         FrontierManager {
-            db: FrontierDb::new(conn),
+            db: FrontierDb::connect(conn),
             tx_fetch: tokio::sync::mpsc::channel(1).0,
             rx_links: tokio::sync::mpsc::channel(1).1,
             noop_delay_millis: 1,
@@ -367,7 +367,7 @@ mod tests {
         let (_tx_links, rx_links) = tokio::sync::mpsc::channel(1);
 
         let mgr = FrontierManager {
-            db: FrontierDb::new(conn),
+            db: FrontierDb::connect(conn),
             tx_fetch,
             rx_links,
             noop_delay_millis: 1,
@@ -418,7 +418,7 @@ mod tests {
         cache.insert("example.com".to_string(), None);
         // Create manager with the same connection
         let mgr = FrontierManager {
-            db: FrontierDb::new(conn.clone()),
+            db: FrontierDb::connect(conn.clone()),
             tx_fetch,
             rx_links,
             noop_delay_millis: 1,
@@ -476,7 +476,7 @@ mod tests {
         let (_tx_links, rx_links) = tokio::sync::mpsc::channel(1);
 
         let mgr = FrontierManager {
-            db: FrontierDb::new(conn),
+            db: FrontierDb::connect(conn),
             tx_fetch,
             rx_links,
             noop_delay_millis: 1,

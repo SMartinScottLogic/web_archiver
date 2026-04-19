@@ -1,0 +1,31 @@
+{
+  "task": {
+    "article_id": 1,
+    "url_id": 42,
+    "url": "https://example.com",
+    "depth": 0,
+    "priority": 0,
+    "discovered_from": null
+  },
+  "current": {
+    "content_markdown": [
+      {
+        "content": {
+          "Literal": "content"
+        },
+        "page": 1
+      }
+    ],
+    "metadata": {
+      "status_code": 200,
+      "content_type": null,
+      "fetch_time": 123,
+      "title": "title",
+      "document_metadata": [
+        {}
+      ]
+    }
+  },
+  "historical_snapshots": [],
+  "all_links": []
+}

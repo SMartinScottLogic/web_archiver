@@ -616,7 +616,6 @@ dependencies = [
  "chrono",
  "futures-util",
  "html2md",
- "itertools",
  "mockall",
  "oxidelta",
  "readability",
@@ -1851,6 +1850,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
  "vector-common",
 ]
 
@@ -2327,7 +2327,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
  "walkdir",
 ]
 
@@ -5112,6 +5111,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5158,12 +5158,10 @@ dependencies = [
  "common",
  "futures-util",
  "reqwest 0.13.2",
- "scraper",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "tracing-test",
  "wiremock",
 ]

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::compressed_string;
 use crate::types::{FetchTask, PageMetadata};
@@ -161,25 +161,20 @@ impl HistoricalPage {
     /// and automatically updating the deduplicated links set
     pub fn add_snapshot(&mut self, snapshot: HistoricalSnapshot) -> anyhow::Result<()> {
         // Verify that incoming snapshot is for later than current
-        let snapshot_fetch_time = snapshot
-            .metadata
+        let snapshot_fetch_time = snapshot.metadata.as_ref().map(|m| m.fetch_time);
+        let current_fetch_time = self
+            .current
             .as_ref()
-            .map(|m| m.fetch_time)
-            .unwrap_or_default();
-        let current_fetch_time = match &self.current {
-            None => 0,
-            Some(current) => current
-                .metadata
-                .as_ref()
-                .map(|m| m.fetch_time)
-                .unwrap_or_default(),
+            .and_then(|current| current.metadata.as_ref().map(|m| m.fetch_time));
+        if let (Some(current_time), Some(snapshot_time)) = (current_fetch_time, snapshot_fetch_time)
+        {
+            assert!(
+                snapshot_time > current_time,
+                "snapshot_time: {}, current_time: {}",
+                snapshot_time,
+                current_time
+            )
         };
-        assert!(
-            snapshot_fetch_time > current_fetch_time,
-            "snapshot_fetch_time: {}, current_fetch_time: {}",
-            snapshot_fetch_time,
-            current_fetch_time
-        );
         // Add snapshot's links to the set (deduplication is automatic), with paging stripped
         for link in &snapshot.links {
             let normalized_link = crate::url::remove_pagination_params(link);

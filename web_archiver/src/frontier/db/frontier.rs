@@ -1,20 +1,24 @@
-use common::types::Priority;
+use anyhow::Context;
+use common::types::{ArticleId, Priority};
 use common::url::extract_domain;
 use common::{types::FetchTask, url::remove_pagination_params};
 use rusqlite::{Connection, Result, params};
 use std::sync::{Arc, Mutex};
 use tracing::error;
 
+#[cfg_attr(test, mockall::automock)]
+pub trait FrontierDbTrait: Send + Sync + 'static {
+    fn connect(conn: Arc<Mutex<Connection>>) -> Self;
+    fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> Result<(), anyhow::Error>;
+
+    fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
+}
 #[derive(Clone)]
 pub struct FrontierDb {
     pub conn: Arc<Mutex<Connection>>,
 }
 
 impl FrontierDb {
-    pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
-        Self { conn }
-    }
-
     /// Reset 'in_progress' tasks to 'pending'
     pub fn reset_in_progress(&self) -> Result<usize> {
         let mut conn = self.conn.lock().unwrap();
@@ -160,5 +164,21 @@ impl FrontierDb {
             params![article_id],
         )?;
         Ok(())
+    }
+}
+
+impl FrontierDbTrait for FrontierDb {
+    fn connect(conn: Arc<Mutex<Connection>>) -> Self {
+        Self { conn }
+    }
+
+    fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> anyhow::Result<()> {
+        self.enqueue_batch(batch, high_priority)
+            .context("enqueuing")
+    }
+
+    fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error> {
+        self.mark_complete_article(article_id)
+            .context("mark complete")
     }
 }

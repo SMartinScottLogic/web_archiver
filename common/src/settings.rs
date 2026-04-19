@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub static CONFIG_FILE: &str = "config.yaml";
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Host {
     pub name: String,
     pub domains: Vec<String>,
@@ -10,7 +10,7 @@ pub struct Host {
     pub pages: PageType,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub enum PageType {
     #[serde(alias = "none")]
     #[default]

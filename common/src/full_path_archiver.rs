@@ -18,13 +18,11 @@ pub struct FullPathArchiver {
     archive_dir: PathBuf,
 }
 
-impl FullPathArchiver {
-    pub fn new(archive_dir: PathBuf) -> Self {
+impl Archiver for FullPathArchiver {
+    fn for_path(archive_dir: PathBuf) -> Self {
         Self { archive_dir }
     }
-}
 
-impl Archiver for FullPathArchiver {
     fn store_page(&self, page: &dyn PageReader) -> anyhow::Result<PathBuf> {
         let path = self.generate_filename(page)?;
         page.write(&path)?;
@@ -204,7 +202,7 @@ mod tests {
     #[test]
     fn test_generate_filename_basic() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/a/b";
         let snapshot = make_snapshot(url, 1700000000);
@@ -227,7 +225,7 @@ mod tests {
     #[test]
     fn test_generate_filename_includes_date() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com";
         let snapshot = make_snapshot(url, 1700000000);
@@ -247,7 +245,7 @@ mod tests {
     #[test]
     fn test_generate_filename_invalid_url() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "not a url";
         let snapshot = make_snapshot(url, 1700000000);
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     fn test_generate_filename_invalid_timestamp() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com";
         let snapshot = make_snapshot(url, u64::MAX);
@@ -284,7 +282,7 @@ mod tests {
     #[test]
     fn test_generate_filename_no_current_snapshot() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(None);
@@ -298,7 +296,7 @@ mod tests {
     #[test]
     fn test_store_page_calls_write() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/write";
         let snapshot = make_snapshot(url, 1700000000);
@@ -325,7 +323,7 @@ mod tests {
     #[test]
     fn test_same_url_overwrites() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/same";
         let snapshot = make_snapshot(url, 1700000000);
@@ -367,7 +365,7 @@ mod tests {
     #[test]
     fn test_sanitization_applied() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/a<>b/c:d";
         let snapshot = make_snapshot(url, 1700000000);
@@ -389,7 +387,7 @@ mod tests {
     #[test]
     fn test_hash_sharding_present() {
         let base = test_dir();
-        let archiver = FullPathArchiver::new(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/shard";
         let snapshot = make_snapshot(url, 1700000000);
@@ -406,5 +404,150 @@ mod tests {
         assert!(components.len() >= 5);
 
         cleanup(&base);
+    }
+
+    fn ctx() -> FullPathArchiver {
+        FullPathArchiver::for_path("/archive".into())
+    }
+
+    #[test]
+    fn test_basic_url() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com/a/b/c", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("/archive/example.com/a/b/c/"));
+        assert!(path_str.ends_with("_2023-11.json"));
+    }
+
+    #[test]
+    fn test_root_path_url() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+
+        // No path segments → slug should be "_"
+        assert!(path_str.contains("/archive/example.com/"));
+        assert!(path_str.contains("/_/"));
+        assert!(path_str.ends_with("_2023-11.json"));
+    }
+
+    #[test]
+    fn test_trailing_slash() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com/a/b/", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+
+        // last segment is empty → slug should fallback to "_"
+        assert!(path_str.contains("/archive/example.com/a/b/"));
+        assert!(path_str.contains("/_/"));
+        assert!(path_str.ends_with("_2023-11.json"));
+    }
+
+    #[test]
+    fn test_sanitization_removes_bad_chars() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com/a/$$$/c!!!", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+
+        // ensure sanitized segments don't include illegal chars
+        assert!(!path_str.contains("$$$"));
+        assert!(!path_str.contains("!!!"));
+    }
+
+    #[test]
+    fn test_unknown_domain() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("file:///some/path", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+
+        assert!(path_str.contains("/unknown/"));
+    }
+
+    #[test]
+    fn test_invalid_url() {
+        let ctx = ctx();
+        let err = ctx.canonical_filename("not a url", 1700000000);
+
+        assert!(err.is_err());
+        let msg = format!("{:?}", err.err().unwrap());
+        assert!(msg.contains("Invalid URL"));
+    }
+
+    #[test]
+    fn test_invalid_timestamp() {
+        let ctx = ctx();
+
+        // invalid timestamp (out of range)
+        let err = ctx.canonical_filename("https://example.com", i64::MAX);
+
+        assert!(err.is_err());
+        let msg = format!("{:?}", err.err().unwrap());
+        assert!(msg.contains("Invalid timestamp"));
+    }
+
+    #[test]
+    fn test_hash_sharding_structure() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com/a", 1700000000)
+            .unwrap();
+
+        let components: Vec<_> = path.components().collect();
+
+        // Expect at least: /archive/domain/.../XX/YY/file.json
+        assert!(components.len() >= 5);
+
+        let shard1 = components[components.len() - 3]
+            .as_os_str()
+            .to_string_lossy();
+        let shard2 = components[components.len() - 2]
+            .as_os_str()
+            .to_string_lossy();
+
+        assert_eq!(shard1.len(), 2);
+        assert_eq!(shard2.len(), 2);
+    }
+
+    #[test]
+    fn test_filename_format_contains_date() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com/a", 1700000000)
+            .unwrap();
+
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        // Expect pattern: hash_slug_YYYY-MM.json
+        assert!(filename.contains("_20")); // year prefix
+        assert!(filename.contains("-")); // month separator
+        assert!(filename.ends_with(".json"));
+    }
+
+    #[test]
+    fn test_empty_segments_filtered() {
+        let ctx = ctx();
+        let path = ctx
+            .canonical_filename("https://example.com//a///b", 1700000000)
+            .unwrap();
+
+        let path_str = path.to_string_lossy();
+
+        // ensure no empty path components (i.e., no "//")
+        assert!(!path_str.contains("//"));
     }
 }

@@ -115,29 +115,7 @@ pub async fn populate_vector_db(
             None => continue,
         };
 
-        let chunks = chunk_markdown::chunk_markdown(&markdown, CHUNK_SIZE, OVERLAP);
-
-        let text_chunks = chunks
-            .iter()
-            .map(|chunk| chunk.text.to_owned())
-            .collect::<Vec<_>>();
-
-        let embeddings = embedder.embed(text_chunks, None)?;
-
-        let mut points = Vec::new();
-
-        for (chunk_id, (chunk, embedding)) in chunks.into_iter().zip(embeddings).enumerate() {
-            info!(chunk_id, path = ?path, total_len = markdown.len(), "upsert");
-            let payload = hash_map!(
-                "text".to_string() => json!(chunk.text),
-                "chunk_id".to_string() => json!(chunk_id),
-                "source".to_string() => json!(path.display().to_string())
-            );
-
-            let point = PointStruct::new(Uuid::new_v4().to_string(), embedding, payload);
-
-            points.push(point);
-        }
+        let points = process_markdown(path, embedder, &markdown)?;
 
         if let Err(e) = client
             .upsert_points(UpsertPointsBuilder::new(collection, points))
@@ -150,13 +128,51 @@ pub async fn populate_vector_db(
     Ok(())
 }
 
+fn process_markdown(
+    path: &Path,
+    embedder: &mut impl Embedder,
+    markdown: &str,
+) -> anyhow::Result<Vec<PointStruct>> {
+    let chunks = chunk_markdown::chunk_markdown(&markdown, CHUNK_SIZE, OVERLAP);
+
+    let text_chunks = chunks
+        .iter()
+        .map(|chunk| chunk.text.to_owned())
+        .collect::<Vec<_>>();
+
+    let embeddings = embedder.embed(text_chunks, None)?;
+
+    let mut points = Vec::new();
+
+    for (chunk_id, (chunk, embedding)) in chunks.into_iter().zip(embeddings).enumerate() {
+        info!(chunk_id, path = ?path, total_len = markdown.len(), "upsert");
+        let payload = hash_map!(
+            "text".to_string() => json!(chunk.text),
+            "chunk_id".to_string() => json!(chunk_id),
+            "source".to_string() => json!(path.display().to_string())
+        );
+
+        let point = PointStruct::new(Uuid::new_v4().to_string(), embedding, payload);
+
+        points.push(point);
+    }
+    Ok(points)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::vector_db::MockVectorDb;
 
     use super::*;
-    use common::types::Priority;
-    use std::{collections::VecDeque, fs};
+    use common::{
+        historical::{HistoricalContent, HistoricalSnapshot},
+        types::{FetchTask, Priority},
+    };
+    use qdrant_client::qdrant::{PointsOperationResponse, UpdateStatus};
+    use std::{
+        collections::{HashSet, VecDeque},
+        fs,
+    };
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
     use vector_common::MockEmbedder;
@@ -280,5 +296,271 @@ mod tests {
         populate_vector_db(&mut embedder, &db, "test", dir.path().to_str().unwrap())
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn current_content_rejects_none_content() {
+        let file = NamedTempFile::new().unwrap();
+
+        let json = serde_json::json!({
+            "task": {},
+            "current": {
+                "content_markdown": [{
+                    "content": "None",
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(file.path(), json.to_string()).unwrap();
+
+        let result = current_content::<HistoricalPage>(file.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn current_content_rejects_empty_literal() {
+        let file = NamedTempFile::new().unwrap();
+
+        let json = serde_json::json!({
+            "task": {},
+            "current": {
+                "content_markdown": [{
+                    "content": { "Literal": "" },
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(file.path(), json.to_string()).unwrap();
+
+        let result = current_content::<HistoricalPage>(file.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn current_content_rejects_delta_content() {
+        let file = NamedTempFile::new().unwrap();
+
+        let json = serde_json::json!({
+            "task": {},
+            "current": {
+                "content_markdown": [{
+                    "content": { "Delta": {} },
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(file.path(), json.to_string()).unwrap();
+
+        let result = current_content::<HistoricalPage>(file.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn current_content_sorts_and_concatenates_pages() {
+        let file = NamedTempFile::new().unwrap();
+
+        let text1 = "a".repeat(6000);
+        let text2 = "b".repeat(6000);
+
+        let json = serde_json::json!({
+                "task": {
+                    "url_id": 0,
+                    "url": "example.com",
+                    "depth": 0,
+                    "priority": 0
+                },
+            "current": {
+                "content_markdown": [
+                    {
+                        "content": { "Literal": text2 },
+                        "page": 2
+                    },
+                    {
+                        "content": { "Literal": text1 },
+                        "page": 1
+                    }
+                ],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(file.path(), json.to_string()).unwrap();
+
+        let result = current_content::<HistoricalPage>(file.path()).unwrap();
+
+        assert!(result.starts_with(&"a"));
+        assert!(result.contains(&"b"));
+    }
+
+    #[test]
+    fn current_content_returns_none_when_no_current() {
+        let file = NamedTempFile::new().unwrap();
+
+        let json = serde_json::json!({
+            "task": {},
+            "current": null,
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(file.path(), json.to_string()).unwrap();
+
+        let result = current_content::<HistoricalPage>(file.path());
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn populate_vector_db_calls_embedder() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+
+        let big_text = "a".repeat(6000);
+
+        let json = serde_json::json!({
+                "task": {
+                    "url_id": 0,
+                    "url": "example.com",
+                    "depth": 0,
+                    "priority": 0
+                },
+            "current": {
+                "content_markdown": [{
+                    "content": { "Literal": big_text },
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(&file_path, json.to_string()).unwrap();
+
+        let mut db = MockVectorDb::new();
+        let mut embedder = MockEmbedder::new();
+
+        embedder
+            .expect_embed()
+            .times(1)
+            .returning(|chunks: Vec<String>, _| Ok(vec![vec![0.0; 3]; chunks.len()]));
+
+        db.expect_upsert_points()
+            .times(1)
+            .returning(|_: UpsertPointsBuilder| {
+                Ok(PointsOperationResponse {
+                    result: None,
+                    time: 0_f64,
+                    usage: None,
+                })
+            });
+
+        populate_vector_db(&mut embedder, &db, "test", dir.path().to_str().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn populate_vector_db_calls_upsert() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+
+        let big_text = "a".repeat(6000);
+
+        let json = serde_json::json!({
+                "task": {
+                    "url_id": 0,
+                    "url": "example.com",
+                    "depth": 0,
+                    "priority": 0
+                },
+            "current": {
+                "content_markdown": [{
+                    "content": { "Literal": big_text },
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(&file_path, json.to_string()).unwrap();
+
+        let mut db = MockVectorDb::new();
+        let mut embedder = MockEmbedder::new();
+
+        embedder
+            .expect_embed()
+            .returning(|chunks: Vec<String>, _| Ok(vec![vec![0.0; 3]; chunks.len()]));
+
+        db.expect_upsert_points()
+            .times(1)
+            .returning(|_: UpsertPointsBuilder| {
+                Ok(PointsOperationResponse {
+                    result: None,
+                    time: 0_f64,
+                    usage: None,
+                })
+            });
+
+        populate_vector_db(&mut embedder, &db, "test", dir.path().to_str().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn populate_vector_db_handles_upsert_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.json");
+
+        let big_text = "a".repeat(6000);
+
+        let json = serde_json::json!({
+            "task": {},
+            "current": {
+                "content_markdown": [{
+                    "content": { "Literal": big_text },
+                    "page": 1
+                }],
+                "links": []
+            },
+            "historical_snapshots": [],
+            "all_links": []
+        });
+
+        fs::write(&file_path, json.to_string()).unwrap();
+
+        let mut db = MockVectorDb::new();
+        let mut embedder = MockEmbedder::new();
+
+        embedder
+            .expect_embed()
+            .returning(|chunks: Vec<String>, _| Ok(vec![vec![0.0; 3]; chunks.len()]));
+
+        db.expect_upsert_points()
+            .returning(|_: UpsertPointsBuilder| {
+                Err(qdrant_client::QdrantError::ConversionError(
+                    "Something bad".into(),
+                ))
+            });
+
+        let result =
+            populate_vector_db(&mut embedder, &db, "test", dir.path().to_str().unwrap()).await;
+
+        assert!(result.is_ok()); // should NOT fail overall
     }
 }

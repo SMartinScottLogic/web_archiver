@@ -58,6 +58,8 @@ pub struct PageMetadata {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::types::FromSql;
+
     use super::*;
 
     #[test]
@@ -87,5 +89,20 @@ mod tests {
         assert_eq!(meta.status_code, 200);
         assert_eq!(meta.content_type.as_deref(), Some("text/html"));
         assert_eq!(meta.title.as_deref(), Some("Title"));
+    }
+
+    #[test]
+    fn test_fromsql_for_priority() {
+        assert_eq!(
+            Ok(Priority::Normal),
+            FromSql::column_result(rusqlite::types::ValueRef::Integer(0))
+        );
+        assert_eq!(
+            Ok(Priority::Article),
+            FromSql::column_result(rusqlite::types::ValueRef::Integer(10))
+        );
+        assert!(
+            <Priority as FromSql>::column_result(rusqlite::types::ValueRef::Integer(5)).is_err()
+        );
     }
 }
