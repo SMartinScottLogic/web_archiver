@@ -4,11 +4,6 @@
 # App specific
 /weeklore_reports
 /archive
-/rebuilt_archive
-/test_archive/
-/legacy_archive/
-/newbie/
-/cheese/*
 /config.yaml
 /archive_index.csv
 /*.db-*
@@ -16,5 +11,3 @@
 /scratch
 /tarpaulin-report.html
 /cobertura.xml
-.fastembed_cache/
-onnxruntime-linux-x64*

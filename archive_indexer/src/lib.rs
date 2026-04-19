@@ -5,11 +5,10 @@ use indicatif::ProgressBar;
 use std::fs::{File, read_dir};
 use std::path::Path;
 
-/// Generate a CSV index of the archive, supporting both ExtractedPage and HistoricalPage formats
+/// Generate a CSV index of the archive, supporting all supported formats (WithTask-based)
 /// Each row: json_file_path, url
 ///
-/// This function is format-agnostic and can read either old ExtractedPage format
-/// or new HistoricalPage format from the archive.
+/// This function is relatively format-agnostic.
 pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressBar) -> Result<()> {
     let mut wtr = WriterBuilder::new()
         .delimiter(b'\t')
@@ -184,7 +183,7 @@ mod tests {
         let inner = "inner";
         fs::create_dir(archive_root.join(inner)).unwrap();
 
-        // Add an ExtractedPage
+        // Add a test page
         let extracted = create_test_extracted_page("https://example.com/extracted");
         let extracted_path = archive_root.join(inner).join("extracted.json");
         let file = File::create(&extracted_path).unwrap();

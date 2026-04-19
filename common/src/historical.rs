@@ -10,7 +10,6 @@ use crate::compressed_string;
 use crate::types::{FetchTask, PageMetadata};
 
 /// A snapshot of a page at a specific point in time.
-/// Wraps all fields from ExtractedPage to preserve complete historical context.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HistoricalSnapshot {
     /// Markdown-formatted content from the page

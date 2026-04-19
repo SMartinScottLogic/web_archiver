@@ -7,8 +7,7 @@ members = [
     "legacy_converter",
     "web_archiver",
     "vector_indexer",
-    "weeklore",
-    "rebuild_archive"
+    "weeklore"
 ]
 resolver = "3"
 

@@ -6,7 +6,7 @@ use mockall::automock;
 use crate::historical::{HistoricalPage, HistoricalSnapshot};
 use crate::types::FetchTask;
 
-/// A trait for reading page data, abstracting over both ExtractedPage and HistoricalPage.
+/// A trait for reading page data, abstracting over format specifics.
 /// This enables crates to work with either type without knowing which concrete implementation they have.
 #[automock]
 #[allow(clippy::needless_lifetimes)]
@@ -23,12 +23,10 @@ pub trait PageReader {
     fn current_mut<'a>(&'a mut self) -> Option<&'a mut HistoricalSnapshot>;
 
     /// Get historical snapshots (NOT current) for this page
-    /// For ExtractedPage: returns an empty slice
     /// For HistoricalPage: returns historical snapshots
     fn snapshots(&mut self) -> &[HistoricalSnapshot];
 
     /// Get all unique links discovered across all snapshots
-    /// For ExtractedPage: returns links from the single snapshot
     /// For HistoricalPage: returns the consolidated deduplicated links (as sorted Vec)
     fn all_links(&self) -> HashSet<String>;
 
