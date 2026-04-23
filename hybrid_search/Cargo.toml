@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 qdrant-client = {workspace = true }
-fastembed = "5.13.1"
+fastembed = "5.13.2"
 tokio = { workspace = true }
 anyhow = {workspace = true }
 serde_json = {workspace = true }
