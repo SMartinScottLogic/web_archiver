@@ -6,8 +6,7 @@ members = [
     "hybrid_search",
     "legacy_converter",
     "web_archiver",
-    "vector_indexer",
-    "weeklore"
+    "vector_indexer"
 ]
 resolver = "3"
 
