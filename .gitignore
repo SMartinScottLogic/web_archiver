@@ -2,12 +2,12 @@
 /target
 
 # App specific
+/weeklore_reports
 /archive
 /config.yaml
 /archive_index.csv
-/crawler.db*
+/*.db-*
+/*.db
 /scratch
 /tarpaulin-report.html
 /cobertura.xml
-.fastembed_cache/
-onnxruntime-linux-x64*

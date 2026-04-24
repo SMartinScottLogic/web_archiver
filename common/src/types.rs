@@ -1,44 +1,50 @@
-use std::{
-    collections::HashMap,
-    fs::{File, create_dir_all},
-    path::PathBuf,
-};
+use std::collections::HashMap;
 
-use anyhow::Context as _;
+pub type ArticleId = i64;
+pub const DEFAULT_PRIORITY: i32 = 0;
+pub const ARTICLE_PRIORITY: i32 = 10;
 
+#[derive(
+    Clone, Debug, Default, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum Priority {
+    #[default]
+    Normal = 0,
+    Article = 10,
+}
+impl rusqlite::types::ToSql for Priority {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from((*self).clone() as u8))
+    }
+}
+impl rusqlite::types::FromSql for Priority {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        u8::column_result(value).and_then(|as_u8| match as_u8 {
+            0 => Ok(Priority::Normal),
+            10 => Ok(Priority::Article),
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        })
+    }
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchTask {
+    #[serde(default)]
+    pub article_id: ArticleId,
+
     pub url_id: i64,
     pub url: String,
 
     pub depth: u32,
-    pub priority: i32,
+    pub priority: Priority,
 
     pub discovered_from: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct FetchedPage {
-    pub task: FetchTask,
-    pub status_code: u16,
-    pub content_type: Option<String>,
-    pub fetch_time: u64,
-    pub body: std::sync::Arc<Vec<u8>>,
-}
-
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ExtractedPage {
+pub struct WithTask {
+    /// The fetch task metadata (url_id, url, depth, priority, discovered_from)
     pub task: FetchTask,
-    pub content_markdown: Option<String>,
-    pub links: Vec<String>,
-    pub metadata: Option<PageMetadata>,
-}
-
-#[derive(Clone, Debug)]
-pub struct DiscoveredLinks {
-    pub parent_url_id: i64,
-    pub links: Vec<String>,
-    pub depth: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -50,35 +56,20 @@ pub struct PageMetadata {
     pub document_metadata: Option<Vec<HashMap<String, String>>>,
 }
 
-impl ExtractedPage {
-    pub fn write_page(&self, path: &PathBuf) -> anyhow::Result<()> {
-        let parent = path
-            .parent()
-            .with_context(|| format!("Failed to get parent of {:?}", path))?;
-        create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory {:?}", parent))?;
-
-        let file =
-            File::create(path).with_context(|| format!("Failed to create file {:?}", path))?;
-
-        serde_json::to_writer_pretty(file, self)
-            .with_context(|| format!("Failed to write JSON to {:?}", path))?;
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use rusqlite::types::FromSql;
+
     use super::*;
 
     #[test]
     fn test_fetch_task_clone_eq() {
         let t1 = FetchTask {
+            article_id: 1,
             url_id: 1,
-            url: "http://foo.com".to_string(),
+            url: "https://foo.com".to_string(),
             depth: 0,
-            priority: 1,
+            priority: Priority::default(),
             discovered_from: None,
         };
         let t2 = t1.clone();
@@ -101,13 +92,17 @@ mod tests {
     }
 
     #[test]
-    fn test_discovered_links() {
-        let links = DiscoveredLinks {
-            parent_url_id: 1,
-            links: vec!["a".to_string(), "b".to_string()],
-            depth: 2,
-        };
-        assert_eq!(links.links.len(), 2);
-        assert_eq!(links.depth, 2);
+    fn test_fromsql_for_priority() {
+        assert_eq!(
+            Ok(Priority::Normal),
+            FromSql::column_result(rusqlite::types::ValueRef::Integer(0))
+        );
+        assert_eq!(
+            Ok(Priority::Article),
+            FromSql::column_result(rusqlite::types::ValueRef::Integer(10))
+        );
+        assert!(
+            <Priority as FromSql>::column_result(rusqlite::types::ValueRef::Integer(5)).is_err()
+        );
     }
 }

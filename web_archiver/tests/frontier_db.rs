@@ -1,6 +1,6 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
-use common::types::FetchTask;
+use common::types::{FetchTask, Priority};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use web_archiver::frontier::db::frontier::FrontierDb;
@@ -10,9 +10,14 @@ fn setup_db() -> FrontierDb {
     // Create minimal schema for testing
     conn.execute_batch(
         r#"
+        CREATE TABLE articles (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE
+        );
         CREATE TABLE urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
+            article_id INTEGER NOT NULL,
             domain TEXT,
             discovered_at INTEGER
         );
@@ -38,13 +43,15 @@ fn setup_db() -> FrontierDb {
 fn test_enqueue_and_claim() {
     let db = setup_db();
     let task = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://example.com".to_string(),
         depth: 0,
-        priority: 5,
+        priority: Priority::default(),
         discovered_from: None,
     };
-    db.enqueue_batch(std::slice::from_ref(&task)).unwrap();
+    db.enqueue_batch(std::slice::from_ref(&task), false)
+        .unwrap();
     let claimed = db.claim_next().unwrap().unwrap();
     assert_eq!(claimed.url, task.url);
     assert_eq!(claimed.depth, task.depth);
@@ -56,27 +63,30 @@ fn test_enqueue_and_claim() {
 fn test_enqueue_batch_deduplication() {
     let db = setup_db();
     let t1 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://a.com".to_string(),
         depth: 0,
-        priority: 1,
+        priority: Priority::default(),
         discovered_from: None,
     };
     let t2 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://b.com".to_string(),
         depth: 1,
-        priority: 2,
+        priority: Priority::default(),
         discovered_from: Some(1),
     };
     let t3 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://a.com".to_string(), // duplicate
         depth: 2,
-        priority: 3,
+        priority: Priority::default(),
         discovered_from: Some(2),
     };
-    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()])
+    db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()], false)
         .unwrap();
     // Only two unique URLs should be present
     let mut seen = vec![];
@@ -95,20 +105,22 @@ fn test_enqueue_batch_deduplication() {
 fn test_mark_complete_and_counts() {
     let db = setup_db();
     let t1 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://foo.com".to_string(),
         depth: 0,
-        priority: 1,
+        priority: Priority::default(),
         discovered_from: None,
     };
     let t2 = FetchTask {
+        article_id: 0,
         url_id: 0,
         url: "http://bar.com".to_string(),
         depth: 0,
-        priority: 2,
+        priority: Priority::default(),
         discovered_from: None,
     };
-    db.enqueue_batch(&[t1.clone(), t2.clone()]).unwrap();
+    db.enqueue_batch(&[t1.clone(), t2.clone()], false).unwrap();
     let c1 = db.claim_next().unwrap().unwrap();
     db.mark_complete(c1.url_id).unwrap();
     assert_eq!(db.count_fetched().unwrap(), 1);

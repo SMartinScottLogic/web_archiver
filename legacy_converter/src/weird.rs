@@ -1,13 +1,14 @@
 use std::path::Path;
 
+use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
 use map_macro::hash_map;
 use nom::combinator::peek;
 use nom::multi::many0;
 use nom::sequence::pair;
 use nom::{Parser as _, combinator::recognize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use common::types::{ExtractedPage, FetchTask, PageMetadata};
+use common::types::{FetchTask, PageMetadata, Priority};
 
 use nom::bytes::complete::tag;
 use nom::character::complete::not_line_ending;
@@ -37,7 +38,7 @@ fn parse_story(input: &str) -> IResult<&str, (String, String, HashMap<String, St
 fn to_extracted_page(
     default_fetch_time: u64,
     (residue, (title, author, meta)): (&str, (String, String, HashMap<String, String>)),
-) -> ExtractedPage {
+) -> HistoricalPage {
     debug!("title: {}", title);
     debug!("author: {}", author);
     debug!("meta: {:?}", meta);
@@ -47,7 +48,7 @@ fn to_extracted_page(
     let fetch_time = meta.get("Packaged").cloned().unwrap_or_default();
     let fetch_time = parse_unambiguous_date(&fetch_time).unwrap_or(default_fetch_time);
 
-    let urls = meta
+    let urls: HashSet<String> = meta
         .iter()
         .filter(|(k, _v)| k.to_lowercase().ends_with("url"))
         .map(|(_k, v)| v)
@@ -69,22 +70,29 @@ fn to_extracted_page(
     let url_id = 0;
     let discovered_from = None;
 
-    let page = ExtractedPage {
-        content_markdown: Some(residue.to_string()),
-        metadata: Some(PageMetadata {
-            status_code: 200,
-            content_type: None,
-            fetch_time,
-            title: Some(title),
-            document_metadata: Some(vec![hash_map! {"keywords".to_string() => tags}]),
+    let page = HistoricalPage {
+        current: Some(HistoricalSnapshot {
+            content_markdown: vec![HistoricalContent {
+                content: common::historical::HistoricalContentType::Literal(residue.to_string()),
+                page: 1,
+            }],
+            links: urls.clone(),
+            metadata: Some(PageMetadata {
+                status_code: 200,
+                content_type: None,
+                fetch_time,
+                title: Some(title),
+                document_metadata: Some(vec![hash_map! {"keywords".to_string() => tags}]),
+            }),
         }),
-
-        links: urls,
+        historical_snapshots: VecDeque::new(),
+        all_links: urls,
         task: FetchTask {
+            article_id: 0,
             url_id,
             url: story_url,
             depth: u32::MAX,
-            priority: 0,
+            priority: Priority::default(),
             discovered_from,
         },
     };
@@ -92,14 +100,14 @@ fn to_extracted_page(
     page
 }
 
-pub fn read_file(path: &Path, default_fetch_time: u64) -> anyhow::Result<ExtractedPage> {
+pub fn read_file(path: &Path, default_fetch_time: u64) -> anyhow::Result<HistoricalPage> {
     let file = std::fs::read_to_string(path)?
         // Normalise line endings (to UNIX format)
         .replace("\r\n", "\n");
 
     parse_story(&file)
-    .map(|v| to_extracted_page(default_fetch_time, v))
-    .map_err(|_error| anyhow::Error::msg(format!("reading {}", path.display())))
+        .map(|v| to_extracted_page(default_fetch_time, v))
+        .map_err(|_error| anyhow::Error::msg(format!("reading {}", path.display())))
 }
 
 fn blank_line(input: &str) -> IResult<&str, &str> {
@@ -127,7 +135,7 @@ fn author(input: &str) -> IResult<&str, &str> {
 
 fn key(input: &str) -> IResult<&str, &str> {
     recognize(pair(
-        nom::bytes::complete::take_while1(|c: char| c.is_uppercase() || c == ' '),
+        nom::bytes::complete::take_while1(|c: char| c.is_uppercase()),
         nom::bytes::complete::take_while(|c: char| c.is_alphabetic() || c == ' '),
     ))
     .parse(input)
@@ -145,6 +153,7 @@ fn key_value_line(input: &str) -> IResult<&str, (&str, &str)> {
 fn continuation_line(input: &str) -> IResult<&str, &str> {
     // Only match if the next line is NOT a key
     if peek(key).parse(input).is_ok() {
+        println!("NOT continuation: '{}'", input);
         return Err(nom::Err::Error(nom::error::Error::new(
             input,
             nom::error::ErrorKind::Tag,
@@ -160,12 +169,13 @@ fn continuation_line(input: &str) -> IResult<&str, &str> {
 fn key_value_multiline(input: &str) -> IResult<&str, (String, String)> {
     let (mut input, (key, first_value)) = key_value_line(input)?;
     let mut value = first_value.to_string();
-
+    println!("key {}, value {}", key, value);
     while let Ok((next_input, line)) = continuation_line(input) {
         if !line.is_empty() {
             if !value.is_empty() {
                 value.push(' ');
             }
+            println!("continue: value {}", line);
             value.push_str(line);
         }
         input = next_input;
@@ -177,4 +187,169 @@ fn key_value_multiline(input: &str) -> IResult<&str, (String, String)> {
 fn metadata(input: &str) -> IResult<&str, HashMap<String, String>> {
     let (input, pairs) = many0(key_value_multiline).parse(input)?;
     Ok((input, pairs.into_iter().collect()))
+}
+
+#[cfg(test)]
+mod tests {
+    use common::page::PageReader;
+
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn sample_input() -> String {
+        r#"
+        
+My Story Title
+
+by Jane Doe
+
+Story URL: https://example.com/story
+Packaged: 2024-01-01
+TAGS: Rust Parsing
+EXTRA URL: https://example.com/extra
+
+This is the story content.
+Second line.
+"#
+        .to_string()
+    }
+
+    #[test]
+    fn test_title_parsing() {
+        let input = "   Hello World  \nrest";
+        let (rest, title) = title(input).unwrap();
+        assert_eq!(title, "Hello World");
+        assert_eq!(rest, "rest");
+    }
+
+    #[test]
+    fn test_author_parsing() {
+        let input = "by John Smith\nrest";
+        let (rest, author) = author(input).unwrap();
+        assert_eq!(author, "John Smith");
+        assert_eq!(rest, "rest");
+    }
+
+    #[test]
+    fn test_key_value_line() {
+        let input = "TITLE: Something here\nrest";
+        let (rest, (k, v)) = key_value_line(input).unwrap();
+        assert_eq!(k, "TITLE");
+        assert_eq!(v, "Something here");
+        assert_eq!(rest, "rest");
+    }
+
+    #[test]
+    fn test_multiline_metadata() {
+        let input = "\
+DESCRIPTION: This is a long
+ continuation line
+ another line
+NEXT: value
+";
+
+        let (rest, (key, value)) = key_value_multiline(input).unwrap();
+        assert_eq!(key, "DESCRIPTION");
+        assert_eq!(value, "This is a long continuation line another line");
+        assert!(rest.starts_with("NEXT"));
+    }
+
+    #[test]
+    fn test_metadata_multiple_entries() {
+        let input = "\
+A: 1
+B: 2
+C: 3
+";
+
+        let (_rest, map) = metadata(input).unwrap();
+        assert_eq!(map.get("A").unwrap(), "1");
+        assert_eq!(map.get("B").unwrap(), "2");
+        assert_eq!(map.get("C").unwrap(), "3");
+    }
+
+    #[test]
+    fn test_parse_story_basic() {
+        let input = sample_input();
+        let (_rest, (title, author, meta)) = parse_story(&input).unwrap();
+
+        assert_eq!(title, "My Story Title");
+        assert_eq!(author, "Jane Doe");
+
+        assert_eq!(meta.get("Story URL").unwrap(), "https://example.com/story");
+        assert_eq!(meta.get("Packaged").unwrap(), "2024-01-01");
+    }
+
+    #[test]
+    fn test_to_extracted_page() {
+        let input = sample_input();
+        let parsed = parse_story(&input).unwrap();
+        let page = to_extracted_page(12345, parsed);
+
+        let current = page.current().as_ref().unwrap();
+
+        let metadata = current.metadata.clone().unwrap();
+        assert_eq!(metadata.title.unwrap(), "My Story Title");
+
+        // Check links extraction
+        assert!(current.links.contains("https://example.com/story"));
+        assert!(current.links.contains("https://example.com/extra"));
+
+        // Check tags normalization
+        let keywords = &metadata.document_metadata.unwrap()[0]["keywords"];
+        assert!(keywords.contains("rust parsing"));
+
+        // Content present
+        let content = match &current.content_markdown.first().unwrap().content {
+            common::historical::HistoricalContentType::Literal(content) => content.to_owned(),
+            _ => panic!("unexpected content type"),
+        };
+        assert!(content.contains("This is the story content."));
+    }
+
+    #[test]
+    fn test_read_file() {
+        let tmp_dir = std::env::temp_dir();
+        let file_path: PathBuf = tmp_dir.join("test_story.txt");
+
+        fs::write(&file_path, sample_input()).unwrap();
+
+        let result = read_file(&file_path, 9999).unwrap();
+
+        assert_eq!(result.task.url, "https://example.com/story");
+        let current = result.current().as_ref().unwrap();
+
+        // Content present
+        let content = match &current.content_markdown.first().unwrap().content {
+            common::historical::HistoricalContentType::Literal(content) => content.to_owned(),
+            _ => panic!("unexpected content type"),
+        };
+        assert!(content.contains("Second line."));
+
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn test_continuation_stops_on_new_key() {
+        let input = "\
+DESC: first line
+ continuation
+NEXT: value
+";
+
+        let (rest, (key, value)) = key_value_multiline(input).unwrap();
+
+        assert_eq!(key, "DESC");
+        assert_eq!(value, "first line continuation");
+        assert!(rest.starts_with("NEXT"));
+    }
+
+    #[test]
+    fn test_blank_lines() {
+        let input = "\n\n\nHello";
+        let (rest, lines) = blank_lines(input).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(rest, "Hello");
+    }
 }

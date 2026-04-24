@@ -1,73 +1,51 @@
 use clap::Parser;
 use figment::{
-    Figment,
     providers::{Format as _, Serialized, Yaml},
+    Figment,
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Config {
-    pub hosts: Vec<Host>,
-    pub workers: usize,
-    pub seed_urls: Vec<String>,
-    pub noop_delay_millis: u64,
-    pub user_agent: String,
+    pub collection: String,
+    pub limit: u64,
+    pub source: Option<String>,
+    pub query: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Host {
-    pub name: String,
-    pub domains: Vec<String>,
-    #[serde(default)]
-    pub pages: PageType,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[derive(Default)]
-pub enum PageType {
-    #[serde(alias = "none")]
-    #[default]
-    None,
-    #[serde(alias = "query-param")]
-    QueryParam { key: String, default: usize },
-}
-
-
-/// Command line arguments
 #[derive(Parser, Debug, Serialize)]
 #[command(rename_all = "kebab-case")]
 #[serde(rename_all = "snake_case")]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Delay in ms for frontier manager idle loop
-    #[arg(short, long)]
+    /// Collection to perform query against
+    #[arg(short, long, help_heading = "Vector")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    noop_delay_millis: Option<u64>,
+    collection: Option<String>,
 
-    /// Number of concurrent fetch workers
-    #[arg(short, long)]
+    /// Number of results wanted
+    #[arg(long, short, help_heading = "Search")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    workers: Option<usize>,
+    limit: Option<u64>,
 
-    /// User Agent to supply for fetches
-    #[arg(short, long)]
+    /// Optional source filter
+    #[arg(long, help_heading = "Search")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<String>,
+    source: Option<String>,
 
-    /// Crawl seeds
+    /// Query text
     #[serde(skip_serializing_if = "Option::is_none")]
-    seed_urls: Option<Vec<String>>,
+    query: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            hosts: Default::default(),
-            workers: 1,
-            seed_urls: Default::default(),
-            noop_delay_millis: 500,
-            user_agent: "Week1Crawler/0.1".to_string(),
+            collection: "archive".to_string(),
+            limit: 5,
+            source: None,
+            query: "hello world".to_string(),
         }
     }
 }
@@ -96,11 +74,20 @@ mod tests {
         let mut file = File::create(path).unwrap();
         file.write_all(yaml.as_bytes()).unwrap();
         let config = Config::file(path).unwrap();
-        assert_eq!(config.hosts.len(), 1);
-        assert_eq!(config.hosts[0].name, "Foo");
-        assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
-        assert_eq!(config.workers, 2);
-        assert_eq!(config.seed_urls, vec!["http://foo.com".to_string()]);
+        assert_eq!(config.limit, 5);
+        assert_eq!(config.collection, "archive");
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_config_default_collection() {
+        let config = Config::default();
+        assert_eq!(config.collection, "archive");
+    }
+
+    #[test]
+    fn test_config_default_limit() {
+        let config = Config::default();
+        assert_eq!(config.limit, 5);
     }
 }

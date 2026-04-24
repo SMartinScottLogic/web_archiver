@@ -1,0 +1,22 @@
+[package]
+name = "vector-common"
+version = "0.1.1"
+edition = "2024"
+
+[dependencies]
+anyhow = {workspace = true }
+mockall = { workspace = true }
+tracing = { workspace = true }
+
+# fastembed = { version = "5.13.0", default-features = false, features = ["qwen3"]}
+# rust-bert = { workspace = true }
+tokenizers = { workspace = true }
+candle-transformers = "0.10.2"        # Minimalist ML framework.
+candle-nn = "0.10.2"             # Minimalist ML framework.
+candle-core = "0.10.2"         # Minimalist ML framework.
+hf-hub = "0.5.0"                    # This crates aims ease the interaction with huggingface It aims to be compatible with the hu…
+
+[dev-dependencies]
+
+[lints]
+clippy = { too_many_arguments = "warn", too_many_lines = "warn" }

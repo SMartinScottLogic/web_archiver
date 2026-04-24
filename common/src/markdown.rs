@@ -14,8 +14,6 @@ pub fn html_to_markdown(html: &str, url: &str) -> String {
         Err(_) => html.to_string(), // fallback to raw HTML
     };
 
-    //let mut content = article.content;
-
     // --- 2. Remove <script>, <style>, <noscript> manually ---
     content = remove_tag(&content, "script");
     content = remove_tag(&content, "style");

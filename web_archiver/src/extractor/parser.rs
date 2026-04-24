@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use common::markdown::html_to_markdown;
-use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage, PageMetadata};
+use common::types::Priority;
 use common::url::{canonicalize_url, resolve_relative_link};
 use lazy_static::lazy_static;
 use map_macro::hash_map;
@@ -10,27 +10,30 @@ use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, trace};
 
+use crate::extractor::router::FetchedArticlePage;
+use crate::extractor::{DiscoveredLink, DiscoveredLinks, FetchedPage};
+
 pub async fn extractor_loop(
     mut rx: Receiver<FetchedPage>,
-    tx_storage: Sender<ExtractedPage>,
+    tx_storage: Sender<FetchedArticlePage>,
     tx_frontier: Sender<DiscoveredLinks>,
 ) {
     while let Some(fetched) = rx.recv().await {
         debug!("Extractor received page: {}", fetched.task.url);
-        if let Ok(extracted) = extract_page(fetched).await {
+        if let Ok((page, links)) = extract_page(fetched).await {
             debug!(
                 "Extractor send extracted page to storage ({}/{})",
                 tx_storage.capacity(),
                 tx_storage.max_capacity()
             );
 
-            let _ = tx_storage.send(extracted.0).await;
+            let _ = tx_storage.send(page).await;
             debug!(
                 "Extractor send discovered links to frontier ({}/{})",
                 tx_frontier.capacity(),
                 tx_frontier.max_capacity()
             );
-            let _ = tx_frontier.send(extracted.1).await;
+            let _ = tx_frontier.send(links).await;
         }
         debug!("Extractor waiting for fetched page");
     }
@@ -49,7 +52,7 @@ lazy_static! {
     };
 }
 
-async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, DiscoveredLinks)> {
+async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, DiscoveredLinks)> {
     let html = String::from_utf8_lossy(&fetched.body);
     let document = Html::parse_document(&html);
 
@@ -67,13 +70,13 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
     }
     // Extract <a href> links
     let selector = Selector::parse("a[href]").unwrap();
-    let mut links = vec![];
+    let mut links = HashSet::new();
     for element in document.select(&selector) {
         if let Some(href) = element.value().attr("href")
             && let Some(resolved) = resolve_relative_link(&fetched.task.url, href)
             && let Some(canon) = canonicalize_url(&resolved)
         {
-            links.push(canon);
+            links.insert(canon);
         }
     }
 
@@ -86,49 +89,55 @@ async fn extract_page(fetched: FetchedPage) -> Result<(ExtractedPage, Discovered
     // Extract page text as markdown
     let html = String::from_utf8_lossy(&fetched.body);
     let markdown = html_to_markdown(&html, &fetched.task.url);
-
-    let extracted_page = ExtractedPage {
-        task: fetched.task.clone(),
-        content_markdown: Some(markdown),
-        links: links.clone(),
-        metadata: Some(PageMetadata {
-            status_code: 200,
-            content_type: None,
-            fetch_time: chrono::Utc::now().timestamp() as u64,
-            title: document
-                .select(&Selector::parse("title").unwrap())
-                .next()
-                .map(|e| e.text().collect::<String>()),
-            document_metadata: Some(meta),
-        }),
-    };
+    let next_depth = fetched.task.depth + 1;
+    let this_url_id = fetched.task.url_id;
 
     let discovered_links = DiscoveredLinks {
-        parent_url_id: fetched.task.url_id,
+        parent_url_id: this_url_id,
+        links: links
+            .iter()
+            .map(|url| DiscoveredLink {
+                url: url.to_owned(),
+                priority: Priority::default(),
+            })
+            .collect(),
+        depth: next_depth,
+    };
+
+    let title = document
+        .select(&Selector::parse("title").unwrap())
+        .next()
+        .map(|e| e.text().collect::<String>());
+    let historical_snapshot = FetchedArticlePage {
+        task: fetched.task,
+        content: markdown,
+        fetch_time: fetched.fetch_time,
         links,
-        depth: fetched.task.depth + 1,
+        title,
+        document_metadata: meta,
     };
 
     debug!("Extractor done");
 
-    Ok((extracted_page, discovered_links))
+    Ok((historical_snapshot, discovered_links))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::types::FetchTask;
+    use common::types::{FetchTask, Priority};
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_extract_page_basic() {
-        let html = b"<html><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let html = b"<html><body><a href='https://foo.com/bar'>link</a>Text</body></html>".to_vec();
         let fetched = FetchedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,
@@ -137,20 +146,21 @@ mod tests {
             body: Arc::new(html),
         };
         let (extracted, discovered) = extract_page(fetched).await.unwrap();
-        assert!(extracted.content_markdown.is_some());
+        assert_eq!("Text", extracted.content);
         assert_eq!(discovered.links.len(), 1);
-        assert!(discovered.links[0].contains("foo.com/bar"));
+        assert!(discovered.links[0].url.contains("foo.com/bar"));
     }
 
     #[tokio::test]
     async fn test_extract_page_metadata() {
-        let html = b"<html><head><meta name='test' content='test content' /></head><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let html = b"<html><head><meta name='test' content='test content' /></head><body><a href='https://foo.com/bar'>link</a>Text</body></html>".to_vec();
         let fetched = FetchedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,
@@ -159,10 +169,10 @@ mod tests {
             body: Arc::new(html),
         };
         let (extracted, discovered) = extract_page(fetched).await.unwrap();
-        assert!(extracted.content_markdown.is_some());
+        assert_eq!("Text", extracted.content);
         assert_eq!(discovered.links.len(), 1);
-        assert!(discovered.links[0].contains("foo.com/bar"));
-        let document_metadata = extracted.metadata.unwrap().document_metadata.unwrap();
+        assert!(discovered.links[0].url.contains("foo.com/bar"));
+        let document_metadata = extracted.document_metadata;
         assert_eq!(document_metadata.len(), 1);
         assert_eq!(
             document_metadata[0].get("name"),
@@ -176,7 +186,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_extractor_loop_sends_outputs() {
-        use common::types::{DiscoveredLinks, ExtractedPage, FetchedPage};
         use std::sync::Arc;
         use tokio::sync::mpsc;
 
@@ -185,13 +194,14 @@ mod tests {
         let (tx_frontier, mut rx_frontier) = mpsc::channel(1);
 
         // Send a test FetchedPage
-        let html = b"<html><body><a href='https://foo.com/bar'>link</a></body></html>".to_vec();
+        let html = b"<html><body><a href='https://foo.com/bar'>link</a>Text</body></html>".to_vec();
         let fetched = FetchedPage {
             task: FetchTask {
+                article_id: 0,
                 url_id: 1,
                 url: "https://foo.com".to_string(),
                 depth: 0,
-                priority: 0,
+                priority: Priority::default(),
                 discovered_from: None,
             },
             status_code: 200,
@@ -205,10 +215,10 @@ mod tests {
         extractor_loop(rx_fetched, tx_storage.clone(), tx_frontier.clone()).await;
 
         // Check that outputs were sent
-        let extracted: ExtractedPage = rx_storage.try_recv().unwrap();
+        let extracted: FetchedArticlePage = rx_storage.try_recv().unwrap();
         let discovered: DiscoveredLinks = rx_frontier.try_recv().unwrap();
-        assert!(extracted.content_markdown.is_some());
+        assert_eq!("Text", extracted.content);
         assert_eq!(discovered.links.len(), 1);
-        assert!(discovered.links[0].contains("foo.com/bar"));
+        assert!(discovered.links[0].url.contains("foo.com/bar"));
     }
 }

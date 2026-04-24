@@ -1,13 +1,12 @@
 [workspace]
 members = [
-    "common", 
+    "common",
+    "vector_common",
     "archive_indexer",
-    "archive_migrator",
     "hybrid_search",
     "legacy_converter",
     "web_archiver",
-    "vector_indexer",
-    "weeklore"
+    "vector_indexer"
 ]
 resolver = "3"
 
@@ -19,11 +18,13 @@ scraper = "0.26"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_repr = "0.1.20"                      # Derive Serialize and Deserialize that delegates to the underlying repr of a C-like e…
 url = "2"
 lru = "0.16"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-test = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4.44"
 html2md = "0.2"
@@ -42,3 +43,13 @@ walkdir = "2.5.0"
 mockall = "0.14.0"            # A powerful mock object library for Rust. 
 blake3 = "1.8.4"               # the BLAKE3 hash function
 futures-util = "0.3.32"                          # Common utilities and extension traits for the futures-rs library. 
+figment = {version = "0.10.19", features = ["yaml"]}
+indicatif = "0.18.4"                    # A progress bar and cli reporting library for Rust
+simhash = "0.3.0"         # Simhash algorithm for 64-bit locality-sensitive hashing and similarity calculation
+oxidelta = "0.1.4"    # VCDIFF (RFC 3284) delta encoder/decoder — Rust reimplementation of xdelta3
+base64 = "0.22.1"                # encodes and decodes base64 as bytes or utf8
+zstd = "0.13"
+#rust-bert = "0.23.0"
+itertools = "0.14.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.
+wiremock = "0.6.5"                     # HTTP mocking to test Rust applications.
+
