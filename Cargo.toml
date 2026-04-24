@@ -38,7 +38,7 @@ map-macro = "0.3.0"
 lazy_static = "1.5.0"
 qdrant-client = "1"
 tokenizers = "0.22"
-uuid = {version = "1.23.0", features = ["v4"]}                                 # A library to generate and parse UUIDs.
+uuid = {version = "1.23.1", features = ["v4"]}                                 # A library to generate and parse UUIDs.
 walkdir = "2.5.0"
 mockall = "0.14.0"            # A powerful mock object library for Rust. 
 blake3 = "1.8.4"               # the BLAKE3 hash function
