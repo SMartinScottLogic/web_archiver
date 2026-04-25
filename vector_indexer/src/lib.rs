@@ -133,7 +133,7 @@ fn process_markdown(
     embedder: &mut impl Embedder,
     markdown: &str,
 ) -> anyhow::Result<Vec<PointStruct>> {
-    let chunks = chunk_markdown::chunk_markdown(&markdown, CHUNK_SIZE, OVERLAP);
+    let chunks = chunk_markdown::chunk_markdown(markdown, CHUNK_SIZE, OVERLAP);
 
     let text_chunks = chunks
         .iter()
@@ -164,15 +164,9 @@ mod tests {
     use crate::vector_db::MockVectorDb;
 
     use super::*;
-    use common::{
-        historical::{HistoricalContent, HistoricalSnapshot},
-        types::{FetchTask, Priority},
-    };
-    use qdrant_client::qdrant::{PointsOperationResponse, UpdateStatus};
-    use std::{
-        collections::{HashSet, VecDeque},
-        fs,
-    };
+    use common::types::Priority;
+    use qdrant_client::qdrant::PointsOperationResponse;
+    use std::{collections::VecDeque, fs};
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
     use vector_common::MockEmbedder;
@@ -402,8 +396,8 @@ mod tests {
 
         let result = current_content::<HistoricalPage>(file.path()).unwrap();
 
-        assert!(result.starts_with(&"a"));
-        assert!(result.contains(&"b"));
+        assert!(result.starts_with("a"));
+        assert!(result.contains("b"));
     }
 
     #[test]

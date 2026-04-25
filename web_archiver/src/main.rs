@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use common::DefaultArchiver;
 use tracing::level_filters::LevelFilter;
 

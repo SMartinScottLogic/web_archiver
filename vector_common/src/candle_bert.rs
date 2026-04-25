@@ -9,7 +9,6 @@ use candle_nn::VarBuilder;
 
 use hf_hub::{Repo, RepoType, api::sync::Api};
 use tokenizers::Tokenizer;
-use tracing::info;
 
 use crate::Embedder;
 

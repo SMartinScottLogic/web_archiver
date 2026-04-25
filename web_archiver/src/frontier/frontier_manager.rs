@@ -26,7 +26,6 @@ pub struct FrontierManager {
 impl FrontierManager {
     pub fn new(
         user_agent: String,
-        seed_urls: Vec<String>,
         tx_fetch: Sender<FetchTask>,
         rx_links: Receiver<DiscoveredLinks>,
         noop_delay_millis: u64,
@@ -40,25 +39,7 @@ impl FrontierManager {
             .reset_in_progress()
             .expect("Failed to reset in_progress tasks");
         info!("Reset {} in_progress tasks", updated);
-        // Batch insert seed URLs into DB
-        let mut seeds = Vec::new();
-        for url in seed_urls {
-            if let Some(canonical) = canonicalize_url(&url) {
-                seeds.push(FetchTask {
-                    article_id: 0, // Will be set by DB
-                    url_id: 0,     // Will be set by DB
-                    url: canonical,
-                    depth: 0,
-                    priority: Priority::default(),
-                    discovered_from: None,
-                });
-            }
-        }
-        if !seeds.is_empty() {
-            let _ = db
-                .enqueue_batch(&seeds, true)
-                .inspect_err(|e| error!("enqueue seeds failed {:?}", e));
-        }
+
         Self {
             db,
             tx_fetch,
@@ -71,45 +52,67 @@ impl FrontierManager {
         }
     }
 
+    /// Batch insert seed URLs into DB
+    pub fn add_seeds(&mut self, seed_urls: &[String]) {
+        let mut seeds = Vec::new();
+        for url in seed_urls {
+            if let Some(canonical) = canonicalize_url(url) {
+                seeds.push(FetchTask {
+                    article_id: 0, // Will be set by DB
+                    url_id: 0,     // Will be set by DB
+                    url: canonical,
+                    depth: 0,
+                    priority: Priority::default(),
+                    discovered_from: None,
+                });
+            }
+        }
+        if !seeds.is_empty() {
+            let _ = self
+                .db
+                .enqueue_batch(&seeds, true)
+                .inspect_err(|e| error!("enqueue seeds failed {:?}", e));
+        }
+    }
+
+    async fn poll_loop(&mut self) {
+        if self.tx_fetch.capacity() > 0
+            && let Ok(Some(task)) = self.db.claim_next()
+        {
+            if self.should_crawl(&task.url).await {
+                if (self.tx_fetch.send(task).await).is_err() {
+                    error!("Worker channel closed, frontier stopping");
+                    return;
+                }
+            } else if let Err(e) = self.db.mark_complete(task.url_id) {
+                error!("Failed to mark complete for {}: {}", task.url, e);
+            }
+        }
+
+        // --- LOG: Show fetched and total pages ---
+        let fetched = self.db.count_fetched().unwrap_or(0);
+        let pending = self.db.count_pending().unwrap_or(0);
+        let total = fetched + pending;
+        info!(fetched, total, "Frontier progress");
+
+        debug!(
+            "receiving links ({}/{})",
+            self.rx_links.capacity(),
+            self.rx_links.max_capacity()
+        );
+        // --- 2. Receive discovered links ---
+        while let Ok(msg) = self.rx_links.try_recv() {
+            debug!("receive {} links", msg.links.len());
+            self.process_discovered_links(msg).await;
+        }
+
+        // --- 3. Sleep a bit to avoid busy loop ---
+        tokio::time::sleep(std::time::Duration::from_millis(self.noop_delay_millis)).await;
+    }
+
     pub async fn run(mut self) {
         loop {
-            // --- 1. Dispatch tasks from DB queue ---
-            if self.tx_fetch.capacity() > 0
-                && let Ok(Some(task)) = self.db.claim_next()
-            {
-                if self.should_crawl(&task.url).await {
-                    debug!("dispatch task {:?}", &task);
-                    if (self.tx_fetch.send(task).await).is_err() {
-                        error!("Worker channel closed, frontier stopping");
-                        return;
-                    }
-                } else {
-                    // Mark as complete in the DB
-                    if let Err(e) = self.db.mark_complete(task.url_id) {
-                        error!("Failed to mark complete for {}: {}", task.url, e);
-                    }
-                }
-            }
-
-            // --- LOG: Show fetched and total pages ---
-            let fetched = self.db.count_fetched().unwrap_or(0);
-            let pending = self.db.count_pending().unwrap_or(0);
-            let total = fetched + pending;
-            info!(fetched, total, "Frontier progress");
-
-            debug!(
-                "receiving links ({}/{})",
-                self.rx_links.capacity(),
-                self.rx_links.max_capacity()
-            );
-            // --- 2. Receive discovered links ---
-            while let Ok(msg) = self.rx_links.try_recv() {
-                debug!("receive {} links", msg.links.len());
-                self.process_discovered_links(msg).await;
-            }
-
-            // --- 3. Sleep a bit to avoid busy loop ---
-            tokio::time::sleep(std::time::Duration::from_millis(self.noop_delay_millis)).await;
+            self.poll_loop().await;
         }
     }
 

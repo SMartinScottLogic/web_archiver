@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::compressed_string;
 use crate::types::{FetchTask, PageMetadata};

@@ -40,15 +40,16 @@ fn setup_manager(seed_urls: Vec<String>, hosts: Vec<Host>) -> FrontierManager {
     .unwrap();
     let (tx_fetch, _rx_fetch) = mpsc::channel(10);
     let (_tx_links, rx_links) = mpsc::channel(10);
-    FrontierManager::new(
+    let mut manager = FrontierManager::new(
         "user_agent".to_string(),
-        seed_urls,
         tx_fetch,
         rx_links,
         1,
         hosts,
         Arc::new(Mutex::new(conn)),
-    )
+    );
+    manager.add_seeds(&seed_urls);
+    manager
 }
 
 #[tokio::test]

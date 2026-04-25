@@ -135,15 +135,15 @@ where
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
     // --- 4. Spawn Frontier Manager ---
-    let frontier_manager = FrontierManager::new(
+    let mut frontier_manager = FrontierManager::new(
         config.user_agent.clone(),
-        seed_urls,
         tx_fetch,
         rx_links,
         noop_delay_millis,
         config.hosts.clone(),
         db_arc.clone(),
     );
+    frontier_manager.add_seeds(&seed_urls);
     System::<A, DB>::spawn_frontier(frontier_manager);
 
     // --- 5. Spawn Worker Tasks ---
@@ -347,7 +347,6 @@ mod run_system_tests {
     use super::*;
     use crate::frontier::db::frontier::MockFrontierDbTrait;
     use common::MockArchiver;
-    use std::sync::{Arc, Mutex};
     use tokio::time::{Duration, sleep};
 
     use crate::settings::Config;
@@ -371,10 +370,10 @@ mod run_system_tests {
     #[tokio::test]
     async fn test_run_system_starts_and_can_be_aborted() {
         // Setup mock expectations
-        let mut archiver_ctx = MockArchiver::for_path_context();
+        let archiver_ctx = MockArchiver::for_path_context();
         archiver_ctx.expect().returning(|_| MockArchiver::new());
 
-        let mut db_ctx = MockFrontierDbTrait::connect_context();
+        let db_ctx = MockFrontierDbTrait::connect_context();
         db_ctx.expect().returning(|_| MockFrontierDbTrait::new());
 
         let config = test_config();
