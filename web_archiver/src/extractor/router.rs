@@ -8,10 +8,7 @@ use std::{
 
 use anyhow::Context;
 use common::{
-    Archiver,
-    historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot},
-    types::{ArticleId, FetchTask, PageMetadata, Priority},
-    url::remove_pagination_params,
+    Archiver, JsonLd, historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot}, types::{ArticleId, FetchTask, PageMetadata, Priority}, url::remove_pagination_params
 };
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
@@ -27,6 +24,7 @@ pub struct FetchedArticlePage {
     pub links: HashSet<String>,
     pub title: Option<String>,
     pub document_metadata: Vec<HashMap<String, String>>,
+    pub json_ld: Option<JsonLd>,
 }
 
 pub struct Router<T: Archiver, DB: FrontierDbTrait> {
@@ -109,7 +107,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
         };
         self.snapshot.content_markdown.push(content);
 
-        // Setup metadata - use first found page for everything, replace title with page 1
+        // Setup metadata - use first found page for everything, replace title and json+ld with page 1
         match &mut self.snapshot.metadata {
             None => {
                 self.snapshot.metadata = Some(PageMetadata {
@@ -118,10 +116,12 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                     fetch_time: page.fetch_time.try_into().unwrap_or_default(),
                     title: page.title.clone(),
                     document_metadata: Some(page.document_metadata.clone()),
+                    json_ld: page.json_ld.clone(),
                 });
             }
             Some(metadata) if page_number == 1 => {
                 metadata.title = page.title.clone();
+                metadata.json_ld = page.json_ld.clone();
             }
             Some(_metadata) => {}
         };
@@ -285,11 +285,7 @@ mod tests {
     use super::*;
     use common::MockArchiver;
     use mockall::predicate::*;
-    use rusqlite::Connection;
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::Mutex,
-    };
+    use std::collections::{HashMap, HashSet};
     use tempfile::tempdir;
     use tokio::sync::mpsc;
     use tracing_test::traced_test;
@@ -316,6 +312,7 @@ mod tests {
             links: links.iter().map(|l| l.to_string()).collect(),
             title: Some("title".into()),
             document_metadata: vec![HashMap::new()],
+            json_ld: None,
         }
     }
 
@@ -395,7 +392,7 @@ mod tests {
     // -----------------------------
     #[test]
     fn done_returns_true_when_all_pages_fetched() {
-        let mut db = MockFrontierDbTrait::new();
+        let db = MockFrontierDbTrait::new();
         let mut state = make_state(db);
 
         state.pages.insert("a".into(), true);
@@ -406,7 +403,7 @@ mod tests {
 
     #[test]
     fn done_returns_false_when_any_page_missing() {
-        let mut db = MockFrontierDbTrait::new();
+        let db = MockFrontierDbTrait::new();
         let mut state = make_state(db);
 
         state.pages.insert("a".into(), true);
@@ -564,6 +561,7 @@ mod tests {
             links: Default::default(),
             title: None,
             document_metadata: vec![],
+            json_ld: None,
         };
 
         state.apply(page);
@@ -769,7 +767,7 @@ mod tests {
 
     #[tokio::test]
     async fn route_spawns_new_actor_when_not_active() {
-        let (done_tx, done_rx) = mpsc::channel(10);
+        let (done_tx, _done_rx) = mpsc::channel(10);
         let db = Arc::new(MockFrontierDbTrait::new());
 
         let mut mock_archiver = MockArchiver::new();

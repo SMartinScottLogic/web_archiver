@@ -95,6 +95,7 @@ fn convert(path: &Path, fetch_time: u64) -> Result<HistoricalPage, anyhow::Error
                 document_metadata: Some(vec![
                     hash_map! {"keywords".to_string() => content.keywords.join(",")},
                 ]),
+                json_ld: None,
             }),
         }),
         historical_snapshots: VecDeque::new(),

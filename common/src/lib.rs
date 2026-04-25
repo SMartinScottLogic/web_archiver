@@ -13,6 +13,7 @@ pub mod reqwest_ext;
 pub mod settings;
 pub mod types;
 pub mod url;
+mod json_ld;
 
 #[automock]
 pub trait Archiver {
@@ -22,3 +23,5 @@ pub trait Archiver {
     fn store_page(&self, page: &dyn page::PageReader) -> anyhow::Result<PathBuf>;
 }
 pub use historical_archiver::HistoricalArchiver as DefaultArchiver;
+pub use json_ld::JsonLd;
+pub use json_ld::parse as parse_jsonld;
