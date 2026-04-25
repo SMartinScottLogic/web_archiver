@@ -311,6 +311,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Page Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -336,6 +337,7 @@ mod tests {
                 fetch_time: 3000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -351,6 +353,7 @@ mod tests {
                 fetch_time: 2000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -366,6 +369,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -415,6 +419,7 @@ mod tests {
                 fetch_time: 2000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -430,6 +435,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -454,6 +460,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -479,6 +486,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -494,6 +502,7 @@ mod tests {
                 fetch_time: 2000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -526,6 +535,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -588,6 +598,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         })
         .unwrap();
@@ -606,6 +617,7 @@ mod tests {
                 fetch_time: 2000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -635,6 +647,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         })
         .unwrap();
@@ -653,6 +666,7 @@ mod tests {
                 fetch_time: 2000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -683,6 +697,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         })
         .unwrap();
@@ -701,6 +716,7 @@ mod tests {
                 fetch_time: 2000,
                 title: Some("Title".to_string()),
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 

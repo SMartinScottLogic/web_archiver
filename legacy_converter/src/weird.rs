@@ -83,6 +83,7 @@ fn to_extracted_page(
                 fetch_time,
                 title: Some(title),
                 document_metadata: Some(vec![hash_map! {"keywords".to_string() => tags}]),
+                json_ld: None,
             }),
         }),
         historical_snapshots: VecDeque::new(),

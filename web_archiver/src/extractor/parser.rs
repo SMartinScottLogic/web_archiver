@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
+use common::{JsonLd, parse_jsonld};
 use common::markdown::html_to_markdown;
 use common::types::Priority;
 use common::url::{canonicalize_url, resolve_relative_link};
@@ -8,7 +9,7 @@ use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, trace};
+use tracing::{debug, error, trace, warn};
 
 use crate::extractor::router::FetchedArticlePage;
 use crate::extractor::{DiscoveredLink, DiscoveredLinks, FetchedPage};
@@ -108,6 +109,22 @@ async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, Disco
         .select(&Selector::parse("title").unwrap())
         .next()
         .map(|e| e.text().collect::<String>());
+    // Extract JSON-LD
+    let json_ld = match Selector::parse(r#"script[type="application/ld+json"]"#) {
+        Ok(selector) => {
+            let json_ld = document
+                .select(&selector)
+                .filter_map(|el| parse_jsonld(&el.inner_html()).ok())
+                .collect::<JsonLd>();
+            warn!(?json_ld, "unconsumed json+ld");
+            Some(json_ld)
+        }
+        Err(e) => {
+            error!(?e, "selector failure");
+            None
+        }
+    };
+
     let historical_snapshot = FetchedArticlePage {
         task: fetched.task,
         content: markdown,
@@ -115,6 +132,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, Disco
         links,
         title,
         document_metadata: meta,
+        json_ld,
     };
 
     debug!("Extractor done");

@@ -131,6 +131,7 @@ mod tests {
                 fetch_time: 1000,
                 title: Some("Test".to_string()),
                 document_metadata: Some(vec![]),
+                json_ld: None,
             }),
         };
 

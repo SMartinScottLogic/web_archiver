@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::json_ld::JsonLd;
+
 pub type ArticleId = i64;
 pub const DEFAULT_PRIORITY: i32 = 0;
 pub const ARTICLE_PRIORITY: i32 = 10;
@@ -54,6 +56,7 @@ pub struct PageMetadata {
     pub fetch_time: u64,
     pub title: Option<String>,
     pub document_metadata: Option<Vec<HashMap<String, String>>>,
+    pub json_ld: Option<JsonLd>,
 }
 
 #[cfg(test)]
@@ -85,6 +88,7 @@ mod tests {
             fetch_time: 123,
             title: Some("Title".to_string()),
             document_metadata: Some(vec![]),
+            json_ld: None,
         };
         assert_eq!(meta.status_code, 200);
         assert_eq!(meta.content_type.as_deref(), Some("text/html"));

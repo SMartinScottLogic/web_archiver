@@ -182,6 +182,7 @@ mod tests {
                 fetch_time: ts,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         }
     }

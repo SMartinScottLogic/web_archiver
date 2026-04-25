@@ -133,6 +133,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -177,6 +178,7 @@ mod tests {
                 fetch_time: 1000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 
@@ -201,6 +203,7 @@ mod tests {
                 fetch_time: 2000,
                 title: None,
                 document_metadata: None,
+                json_ld: None,
             }),
         };
 

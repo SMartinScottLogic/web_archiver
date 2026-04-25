@@ -309,6 +309,7 @@ mod tests {
             links: HashSet::new(),
             title: None,
             document_metadata: Vec::new(),
+            json_ld: None,
         };
 
         tx_extracted.send(page).await.unwrap();
