@@ -8,17 +8,17 @@ use chrono::{DateTime, Datelike as _, Utc};
 use url::Url;
 
 use crate::{
-    Archiver,
+    archiver::Archiver,
     page::PageReader,
     types::WithTask,
     url::{hash_url, sanitize_segment},
 };
 
-pub struct BalancedArchiver {
+pub struct FullPathArchiver {
     archive_dir: PathBuf,
 }
 
-impl Archiver for BalancedArchiver {
+impl Archiver for FullPathArchiver {
     fn for_path(archive_dir: PathBuf) -> Self {
         Self { archive_dir }
     }
@@ -42,21 +42,13 @@ impl Archiver for BalancedArchiver {
             .map(|s| s.collect::<Vec<_>>())
             .unwrap_or_default();
 
-        let (prefix_segments, last_segment) = segments.split_at(segments.len().saturating_sub(1));
-
-        let slug = last_segment
-            .first()
-            .map(|s| sanitize_segment(s))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "_".to_string());
-
         // --- Base path ---
         let mut base_path = self.archive_dir.clone();
 
         let domain = url.domain().unwrap_or("unknown");
         base_path.push(domain);
 
-        for seg in prefix_segments {
+        for seg in segments {
             let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
@@ -71,14 +63,7 @@ impl Archiver for BalancedArchiver {
         base_path.push(&hash[2..4]);
 
         // --- Filename ---
-
-        let filename = format!(
-            "{}_{}_{}-{:02}.json",
-            hash,
-            slug,
-            datetime.year(),
-            datetime.month()
-        );
+        let filename = format!("{}_{}-{:02}.json", hash, datetime.year(), datetime.month());
         let path = base_path.join(filename);
         Ok(path)
     }
@@ -107,21 +92,13 @@ impl Archiver for BalancedArchiver {
             .map(|s| s.collect::<Vec<_>>())
             .unwrap_or_default();
 
-        let (prefix_segments, last_segment) = segments.split_at(segments.len().saturating_sub(1));
-
-        let slug = last_segment
-            .first()
-            .map(|s| sanitize_segment(s))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "_".to_string());
-
         // --- Base path ---
         let mut base_path = self.archive_dir.clone();
 
         let domain = url.domain().unwrap_or("unknown");
         base_path.push(domain);
 
-        for seg in prefix_segments {
+        for seg in segments {
             let clean = sanitize_segment(seg);
             if !clean.is_empty() {
                 base_path.push(clean);
@@ -142,18 +119,11 @@ impl Archiver for BalancedArchiver {
 
         loop {
             let filename = if attempt == 0 {
-                format!(
-                    "{}_{}_{}-{:02}.json",
-                    hash,
-                    slug,
-                    datetime.year(),
-                    datetime.month()
-                )
+                format!("{}_{}-{:02}.json", hash, datetime.year(), datetime.month())
             } else {
                 format!(
-                    "{}_{}_{}-{:02}_{}.json",
+                    "{}_{}-{:02}_{}.json",
                     hash,
-                    slug,
                     datetime.year(),
                     datetime.month(),
                     attempt
@@ -190,13 +160,10 @@ mod tests {
     use super::*;
     use crate::historical::HistoricalSnapshot;
     use crate::page::MockPageReader;
-    use crate::types::{FetchTask, WithTask};
-    use crate::types::{PageMetadata, Priority};
+    use crate::types::{FetchTask, PageMetadata, Priority};
     use mockall::predicate::*;
     use std::collections::HashSet;
-    use std::{fs, path::Path, path::PathBuf};
-
-    use tracing_test::traced_test;
+    use std::{fs, path::Path};
 
     fn make_snapshot(_url: &str, ts: u64) -> HistoricalSnapshot {
         HistoricalSnapshot {
@@ -213,6 +180,7 @@ mod tests {
                 status_code: 200,
                 content_type: Some("text/html".into()),
                 fetch_time: ts,
+                authors: Vec::new(),
                 title: None,
                 document_metadata: None,
                 json_ld: None,
@@ -228,18 +196,17 @@ mod tests {
 
     fn test_dir() -> PathBuf {
         let mut dir = std::env::temp_dir();
-        dir.push("balanced_archiver_tests");
+        dir.push("full_path_archiver_tests");
         dir.push(format!("test-{}", uuid::Uuid::new_v4()));
         dir
     }
 
     #[test]
-    #[traced_test]
-    fn test_basic_path_structure() {
+    fn test_generate_filename_basic() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
-        let url = "https://example.com/a/b/c";
+        let url = "https://example.com/a/b";
         let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
@@ -249,6 +216,7 @@ mod tests {
         let path = archiver.generate_filename(&mock).unwrap();
         let path_str = path.to_string_lossy();
 
+        assert!(path_str.contains("archive"));
         assert!(path_str.contains("example.com"));
         assert!(path_str.contains("a"));
         assert!(path_str.contains("b"));
@@ -257,54 +225,11 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
-    fn test_slug_in_filename() {
+    fn test_generate_filename_includes_date() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
-        let url = "https://example.com/a/b/my-page";
-        let snapshot = make_snapshot(url, 1700000000);
-
-        let mut mock = MockPageReader::new();
-        mock.expect_current().return_const(Some(snapshot));
-        mock.expect_url().return_const(url.to_owned());
-
-        let path = archiver.generate_filename(&mock).unwrap();
-        let filename = path.file_name().unwrap().to_string_lossy();
-
-        assert!(filename.contains("my-page"));
-
-        cleanup(&base);
-    }
-
-    #[test]
-    #[traced_test]
-    fn test_empty_slug_fallback() {
-        let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
-
-        let url = "https://example.com/";
-        let snapshot = make_snapshot(url, 1700000000);
-
-        let mut mock = MockPageReader::new();
-        mock.expect_current().return_const(Some(snapshot));
-        mock.expect_url().return_const(url.to_owned());
-
-        let path = archiver.generate_filename(&mock).unwrap();
-        let filename = path.file_name().unwrap().to_string_lossy();
-
-        assert!(filename.contains("_")); // fallback slug
-
-        cleanup(&base);
-    }
-
-    #[test]
-    #[traced_test]
-    fn test_filename_contains_date() {
-        let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
-
-        let url = "https://example.com/page";
+        let url = "https://example.com";
         let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
@@ -320,10 +245,9 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
-    fn test_invalid_url_fails() {
+    fn test_generate_filename_invalid_url() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "not a url";
         let snapshot = make_snapshot(url, 1700000000);
@@ -339,10 +263,9 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
-    fn test_invalid_timestamp_fails() {
+    fn test_generate_filename_invalid_timestamp() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com";
         let snapshot = make_snapshot(url, u64::MAX);
@@ -359,10 +282,9 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
-    fn test_no_current_snapshot() {
+    fn test_generate_filename_no_current_snapshot() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let mut mock = MockPageReader::new();
         mock.expect_current().return_const(None);
@@ -374,10 +296,9 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
     fn test_store_page_calls_write() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/write";
         let snapshot = make_snapshot(url, 1700000000);
@@ -388,6 +309,7 @@ mod tests {
         mock.expect_url().return_const(url.to_owned());
 
         mock.expect_write().times(1).returning(|path| {
+            // simulate writing a valid file
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(path, b"{}")?;
             Ok(())
@@ -401,10 +323,9 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
     fn test_same_url_overwrites() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/same";
         let snapshot = make_snapshot(url, 1700000000);
@@ -413,7 +334,6 @@ mod tests {
         mock1.expect_current().return_const(Some(snapshot.clone()));
         mock1.expect_url().return_const(url.to_owned());
         mock1.expect_write().returning(|path| {
-            println!("Write to {:?}", path);
             fs::create_dir_all(path.parent().unwrap())?;
             let page = WithTask {
                 task: FetchTask {
@@ -445,12 +365,11 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
-    fn test_sanitization_in_slug() {
+    fn test_sanitization_applied() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
-        let url = "https://example.com/a/<>bad:slug";
+        let url = "https://example.com/a<>b/c:d";
         let snapshot = make_snapshot(url, 1700000000);
 
         let mut mock = MockPageReader::new();
@@ -458,20 +377,19 @@ mod tests {
         mock.expect_url().return_const(url.to_owned());
 
         let path = archiver.generate_filename(&mock).unwrap();
-        let filename = path.file_name().unwrap().to_string_lossy();
+        let path_str = path.to_string_lossy();
 
-        assert!(!filename.contains("<"));
-        assert!(!filename.contains(">"));
-        assert!(!filename.contains(":"));
+        assert!(!path_str.contains("<"));
+        assert!(!path_str.contains(">"));
+        assert!(!path_str.contains(":"));
 
         cleanup(&base);
     }
 
     #[test]
-    #[traced_test]
     fn test_hash_sharding_present() {
         let base = test_dir();
-        let archiver = BalancedArchiver::for_path(base.clone());
+        let archiver = FullPathArchiver::for_path(base.clone());
 
         let url = "https://example.com/shard";
         let snapshot = make_snapshot(url, 1700000000);
@@ -484,13 +402,14 @@ mod tests {
 
         let components: Vec<_> = path.components().collect();
 
-        assert!(components.len() >= 4);
+        // Expect: archive / domain / ... / xx / yy / file
+        assert!(components.len() >= 5);
 
         cleanup(&base);
     }
 
-    fn ctx() -> BalancedArchiver {
-        BalancedArchiver::for_path("/archive".into())
+    fn ctx() -> FullPathArchiver {
+        FullPathArchiver::for_path("/archive".into())
     }
 
     #[test]
@@ -501,10 +420,8 @@ mod tests {
             .unwrap();
 
         let path_str = path.to_string_lossy();
-
-        assert!(path_str.contains("/archive/example.com/a/b/"));
-        assert!(path_str.ends_with(".json"));
-        assert!(path_str.contains("_c_"));
+        assert!(path_str.contains("/archive/example.com/a/b/c/"));
+        assert!(path_str.ends_with("_2023-11.json"));
     }
 
     #[test]
@@ -517,7 +434,9 @@ mod tests {
         let path_str = path.to_string_lossy();
 
         // No path segments → slug should be "_"
-        assert!(path_str.contains("___")); // "_"
+        assert!(path_str.contains("/archive/example.com/"));
+        assert!(path_str.contains("/_/"));
+        assert!(path_str.ends_with("_2023-11.json"));
     }
 
     #[test]
@@ -530,7 +449,9 @@ mod tests {
         let path_str = path.to_string_lossy();
 
         // last segment is empty → slug should fallback to "_"
-        assert!(path_str.contains("___"));
+        assert!(path_str.contains("/archive/example.com/a/b/"));
+        assert!(path_str.contains("/_/"));
+        assert!(path_str.ends_with("_2023-11.json"));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use anyhow::Context;
 use common::{
     Archiver, JsonLd, historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot}, types::{ArticleId, FetchTask, PageMetadata, Priority}, url::remove_pagination_params
 };
+use figment::error::OneOf;
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
 use tracing::{Level, debug, error, event_enabled, info, warn};
@@ -114,6 +115,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                     status_code: StatusCode::OK.as_u16(),
                     content_type: None,
                     fetch_time: page.fetch_time.try_into().unwrap_or_default(),
+                    authors: page.json_ld.as_ref().map(|j| j.authors()).unwrap_or_default(),
                     title: page.title.clone(),
                     document_metadata: Some(page.document_metadata.clone()),
                     json_ld: page.json_ld.clone(),
@@ -122,6 +124,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             Some(metadata) if page_number == 1 => {
                 metadata.title = page.title.clone();
                 metadata.json_ld = page.json_ld.clone();
+                metadata.authors = page.json_ld.as_ref().map(|json_ld| json_ld.authors()).unwrap_or_default()
             }
             Some(_metadata) => {}
         };
