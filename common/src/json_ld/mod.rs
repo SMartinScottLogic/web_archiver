@@ -43,6 +43,22 @@ impl FromIterator<JsonLd> for JsonLd {
     }
 }
 
+impl JsonLd {
+    pub fn authors(&self) -> Vec<String> {
+        match self {
+            JsonLd::Article(article) => article.authors(),
+            JsonLd::WebPage(web_page) => web_page.authors(),
+            JsonLd::Array(json_lds) => json_lds.iter()
+            .fold(Vec::new(), |mut acc, json_ld| {
+                let mut authors = json_ld.authors();
+                acc.append(&mut authors);
+                acc
+            }),
+            JsonLd::Unknown(_value) => Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Article {
     #[serde(rename = "@context")]
@@ -67,6 +83,19 @@ pub struct Article {
     #[serde(rename = "mainEntityOfPage")]
     pub main_entity_of_page: Option<Value>,
 }
+impl Article {
+    pub fn authors(&self) -> Vec<String> {
+        match &self.author {
+            Some(author) => match author {
+                OneOrMany::One(a) => a.name().into_iter().collect(),
+                OneOrMany::Many(items) => items.iter()
+                .filter_map(|author| author.name())
+                .collect(),
+            },
+            None => Vec::new(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct WebPage {
@@ -86,6 +115,22 @@ pub struct WebPage {
 
     #[serde(rename = "dateModified")]
     pub date_modified: Option<String>,
+
+    pub author: Option<OneOrMany<Author>>,
+}
+
+impl WebPage {
+    pub fn authors(&self) -> Vec<String> {
+        match &self.author {
+            Some(author) => match author {
+                OneOrMany::One(a) => a.name().into_iter().collect(),
+                OneOrMany::Many(items) => items.iter()
+                .filter_map(|author| author.name())
+                .collect(),
+            },
+            None => Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -94,6 +139,15 @@ pub enum Author {
     Person(Person),
     Organization(Organization),
     Name(String),
+}
+impl Author {
+    fn name(&self) -> Option<String> {
+        match self {
+            Author::Person(person) => person.name.clone(),
+            Author::Organization(organization) => organization.name.clone(),
+            Author::Name(name) => Some(name.to_owned()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -185,6 +239,7 @@ mod test {
             url: Some("https://example.com".into()),
             date_published: Some("yesterday".into()),
             date_modified: Some("today".into()),
+            author: None,
         };
         assert_eq!(JsonLd::WebPage(webpage.clone()), JsonLd::WebPage(webpage));
     }

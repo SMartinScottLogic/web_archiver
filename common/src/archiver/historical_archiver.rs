@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tracing::debug;
 
 use crate::{
-    Archiver,
+    archiver::Archiver,
     page::PageReader,
     url::{remove_pagination_params, url_to_filename},
 };

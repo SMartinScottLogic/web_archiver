@@ -91,6 +91,7 @@ fn convert(path: &Path, fetch_time: u64) -> Result<HistoricalPage, anyhow::Error
                 status_code: 200,
                 content_type: None,
                 fetch_time,
+                authors: Vec::new(),
                 title: Some(content.title),
                 document_metadata: Some(vec![
                     hash_map! {"keywords".to_string() => content.keywords.join(",")},

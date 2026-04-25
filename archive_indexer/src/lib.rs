@@ -129,6 +129,7 @@ mod tests {
                 status_code: 200,
                 content_type: Some("text/html".to_string()),
                 fetch_time: 1000,
+                authors: Vec::new(),
                 title: Some("Test".to_string()),
                 document_metadata: Some(vec![]),
                 json_ld: None,
