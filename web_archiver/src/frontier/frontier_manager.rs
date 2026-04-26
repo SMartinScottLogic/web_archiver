@@ -1,5 +1,6 @@
 use crate::extractor::DiscoveredLinks;
 use crate::frontier::db::frontier::{FrontierDb, FrontierDbTrait};
+use anyhow::Context;
 use common::settings::Host;
 use common::types::{FetchTask, Priority};
 use common::url::{canonicalize_url, extract_domain, is_http_url};
@@ -73,6 +74,11 @@ impl FrontierManager {
                 .enqueue_batch(&seeds, true)
                 .inspect_err(|e| error!("enqueue seeds failed {:?}", e));
         }
+    }
+
+    /// Reset all urls to in-progress
+    pub fn reset_all(&self) -> anyhow::Result<usize> {
+        self.db.reset_all().context("reset queue")
     }
 
     async fn poll_loop(&mut self) {

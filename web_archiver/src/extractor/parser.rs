@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
 use crate::extractor::router::FetchedArticlePage;
 use crate::extractor::{DiscoveredLink, DiscoveredLinks, FetchedPage};
@@ -82,9 +82,9 @@ async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, Disco
     }
 
     debug!(
-        "Extractor: {} links discovered from {}",
-        links.len(),
-        fetched.task.url
+        num_links = links.len(),
+        url = fetched.task.url,
+        "Extractor: links discovered"
     );
 
     // Extract page text as markdown
@@ -116,7 +116,7 @@ async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, Disco
                 .select(&selector)
                 .filter_map(|el| parse_jsonld(&el.inner_html()).ok())
                 .collect::<JsonLd>();
-            warn!(?json_ld, "unconsumed json+ld");
+            debug!(url = fetched.task.url, ?json_ld, "extracted json+ld");
             Some(json_ld)
         }
         Err(e) => {

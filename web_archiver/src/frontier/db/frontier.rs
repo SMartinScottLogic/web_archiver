@@ -31,6 +31,18 @@ impl FrontierDb {
         Ok(updated)
     }
 
+    /// Reset ALL tasks to 'pending'
+    pub fn reset_all(&self) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let updated = tx.execute(
+            "UPDATE frontier SET status = 'pending', priority = ?1",
+            params![Priority::default()],
+        )?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
     /// Batch insert fetch tasks (deduplication by URL)
     pub fn enqueue_batch(&self, tasks: &[FetchTask], force_priority: bool) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();

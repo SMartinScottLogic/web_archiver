@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
-use map_macro::hash_map;
+use map_macro::{hash_map, vec_deque};
 use nom::combinator::peek;
 use nom::multi::many0;
 use nom::sequence::pair;
@@ -97,6 +97,7 @@ fn to_extracted_page(
             priority: Priority::default(),
             discovered_from,
         },
+        history: vec_deque![fetch_time],
     };
     debug!("page: {:?}", page);
     page
