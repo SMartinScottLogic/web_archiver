@@ -48,8 +48,7 @@ impl JsonLd {
         match self {
             JsonLd::Article(article) => article.authors(),
             JsonLd::WebPage(web_page) => web_page.authors(),
-            JsonLd::Array(json_lds) => json_lds.iter()
-            .fold(Vec::new(), |mut acc, json_ld| {
+            JsonLd::Array(json_lds) => json_lds.iter().fold(Vec::new(), |mut acc, json_ld| {
                 let mut authors = json_ld.authors();
                 acc.append(&mut authors);
                 acc
@@ -88,9 +87,7 @@ impl Article {
         match &self.author {
             Some(author) => match author {
                 OneOrMany::One(a) => a.name().into_iter().collect(),
-                OneOrMany::Many(items) => items.iter()
-                .filter_map(|author| author.name())
-                .collect(),
+                OneOrMany::Many(items) => items.iter().filter_map(|author| author.name()).collect(),
             },
             None => Vec::new(),
         }
@@ -124,9 +121,7 @@ impl WebPage {
         match &self.author {
             Some(author) => match author {
                 OneOrMany::One(a) => a.name().into_iter().collect(),
-                OneOrMany::Many(items) => items.iter()
-                .filter_map(|author| author.name())
-                .collect(),
+                OneOrMany::Many(items) => items.iter().filter_map(|author| author.name()).collect(),
             },
             None => Vec::new(),
         }

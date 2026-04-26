@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use archive_indexer::{Args, run};
 use common::types::{FetchTask, WithTask};
+use itertools::Itertools as _;
 use tempfile::TempDir;
 
 fn create_archive(archive_root: &Path, files: &[WithTask]) -> Result<()> {
@@ -59,11 +60,12 @@ fn processes_files() -> Result<()> {
     let data = binding
         .lines()
         .skip(1) // Skip header line
-        .filter_map(|line| line.split_once('\t'))
-        .map(|(a, b)| {
+        .filter_map(|line| line.split('\t').collect_tuple::<(_, _, _)>())
+        .map(|(a, b, c)| {
             (
                 a.split('/').next_back().unwrap(),
                 b.split('/').next_back().unwrap(),
+                c.split('/').next_back().unwrap(),
             )
         })
         .inspect(|data| println!("{data:?}"))
@@ -71,9 +73,9 @@ fn processes_files() -> Result<()> {
 
     assert_eq!(3, data.len());
 
-    assert!(data.contains(&("file_0.json", "article2")));
-    assert!(data.contains(&("file_1.json", "article1")));
-    assert!(data.contains(&("file_2.json", "article3")));
+    assert!(data.contains(&("file_0.json", "article2", "")));
+    assert!(data.contains(&("file_1.json", "article1", "")));
+    assert!(data.contains(&("file_2.json", "article3", "")));
 
     Ok(())
 }

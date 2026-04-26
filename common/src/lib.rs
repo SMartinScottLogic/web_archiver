@@ -10,6 +10,6 @@ pub mod url;
 mod archiver;
 mod json_ld;
 
+pub use archiver::{Archiver, DefaultArchiver, MockArchiver};
 pub use json_ld::JsonLd;
 pub use json_ld::parse as parse_jsonld;
-pub use archiver::{Archiver, DefaultArchiver, MockArchiver};
