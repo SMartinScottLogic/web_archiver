@@ -42,7 +42,7 @@ async fn main() {
 
     debug!(?config, "config");
 
-    let _ = system::run_system::<DefaultArchiver, FrontierDb>(config.clone()).await;
+    let _ = system::run_system::<DefaultArchiver, FrontierDb>(config).await;
 
     info!("Shutting down");
 }

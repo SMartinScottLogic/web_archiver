@@ -52,11 +52,16 @@ pub struct WithTask {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PageMetadata {
     pub status_code: u16,
+    #[serde(default)]
     pub content_type: Option<String>,
     pub fetch_time: u64,
+    #[serde(default)]
     pub authors: Vec<String>,
+    #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
     pub document_metadata: Option<Vec<HashMap<String, String>>>,
+    #[serde(default)]
     pub json_ld: Option<JsonLd>,
 }
 

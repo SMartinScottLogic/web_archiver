@@ -81,6 +81,9 @@ pub struct Article {
 
     #[serde(rename = "mainEntityOfPage")]
     pub main_entity_of_page: Option<Value>,
+
+    pub genre: Option<OneOrMany<String>>,
+    pub keywords: Option<OneOrMany<String>>,
 }
 impl Article {
     pub fn authors(&self) -> Vec<String> {
@@ -257,6 +260,8 @@ mod test {
                 name: Some("org".into()),
             }),
             main_entity_of_page: Some(Value::Null),
+            genre: None,
+            keywords: None,
         };
         assert_eq!(JsonLd::Article(article.clone()), JsonLd::Article(article));
     }

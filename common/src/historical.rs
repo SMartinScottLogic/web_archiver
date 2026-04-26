@@ -46,6 +46,7 @@ pub struct HistoricalPage {
     /// The current (most up to date) snapshot for this URL
     pub current: Option<HistoricalSnapshot>,
     /// Historical snapshots for this URL, sorted by fetch_time (ascending)
+    #[serde(default)]
     pub historical_snapshots: VecDeque<HistoricalSnapshot>,
     /// All unique links discovered across all snapshots (deduplicated)
     /// Serialized as a sorted JSON array for deterministic output
@@ -54,16 +55,19 @@ pub struct HistoricalPage {
         deserialize_with = "deserialize_links"
     )]
     pub all_links: HashSet<String>,
+    /// Historical fetch times (all, including duplicates)
+    #[serde(default)]
+    pub history: VecDeque<u64>,
 }
-
 impl HistoricalPage {
     /// Create a new HistoricalPage with default empty state
     pub fn new(task: FetchTask) -> Self {
         Self {
             task,
             current: None,
-            historical_snapshots: VecDeque::new(),
-            all_links: HashSet::new(),
+            historical_snapshots: Default::default(),
+            all_links: Default::default(),
+            history: Default::default(),
         }
     }
 
@@ -95,36 +99,7 @@ impl HistoricalPage {
     ) -> anyhow::Result<Vec<(u32, (u32, String))>> {
         let current = Self::page_map(current)?;
         let snapshot = Self::page_map(snapshot)?;
-        // let current = current
-        //     .content_markdown
-        //     .iter()
-        //     .fold(HashMap::new(), |mut acc, v| {
-        //         let text = match &v.content {
-        //             HistoricalContentType::None => "",
-        //             HistoricalContentType::Literal(t) => t.as_str(),
-        //             HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
-        //         };
-        //         if let Some(other) = acc.insert(v.page, text) {
-        //             error!("article (current): {:?}", current);
-        //             panic!("Expected {} to be a new page, but already existed with content: {}, wanted to insert {}", v.page, other, text);
-        //         };
-        //         acc
-        //     });
-        // let snapshot = snapshot
-        //     .content_markdown
-        //     .iter()
-        //     .fold(HashMap::new(), |mut acc, v| {
-        //         let text = match &v.content {
-        //             HistoricalContentType::None => "",
-        //             HistoricalContentType::Literal(t) => t.as_str(),
-        //             HistoricalContentType::Delta(_) => panic!("Cannot delta based on a Delta"),
-        //         };
-        //         if let Some(other) = acc.insert(v.page, text) {
-        //             error!("article (snapshot): {:?}", snapshot);
-        //             panic!("Expected {} to be a new page, but already existed with content: {}, wanted to insert {}", v.page, other, text);
-        //         };
-        //         acc
-        //     });
+
         let max_page = std::cmp::max(
             current.keys().cloned().max().unwrap_or_default(),
             snapshot.keys().cloned().max().unwrap_or_default(),
@@ -213,6 +188,9 @@ impl HistoricalPage {
             }
         }
         self.current = Some(snapshot);
+        if let Some(incoming_fetch_time) = snapshot_fetch_time {
+            self.history.push_front(incoming_fetch_time);
+        }
         Ok(())
     }
 

@@ -18,6 +18,7 @@ pub struct Config {
     pub noop_delay_millis: u64,
     pub user_agent: String,
     pub db: String,
+    pub reset: bool,
 }
 
 /// Command line arguments
@@ -35,6 +36,10 @@ struct Args {
     #[arg(short('t'), long, help_heading = "Archive", value_parser = parse_unambiguous_date)]
     #[serde(skip_serializing_if = "Option::is_none")]
     archive_time: Option<i64>,
+
+    /// Force reset - all urls will be moved to pending
+    #[arg(short, long, help_heading = "Archive")]
+    reset: bool,
 
     /// Delay in ms for frontier manager idle loop
     #[arg(short, long, help_heading = "Crawl")]
@@ -104,6 +109,7 @@ impl Default for Config {
             noop_delay_millis: 500,
             user_agent: "Week1Crawler/0.1".to_string(),
             db: "crawler.db".to_string(),
+            reset: false,
         }
     }
 }

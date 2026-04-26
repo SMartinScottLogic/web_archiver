@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tracing::info;
 
 use crate::extractor::parser::extractor_loop;
 use crate::fetcher::worker::worker_loop_single;
@@ -143,6 +144,10 @@ where
         config.hosts.clone(),
         db_arc.clone(),
     );
+    if config.reset {
+        let num_reset = frontier_manager.reset_all()?;
+        info!("Reset all fetch tasks: {}", num_reset);
+    }
     frontier_manager.add_seeds(&seed_urls);
     System::<A, DB>::spawn_frontier(frontier_manager);
 
@@ -196,6 +201,7 @@ mod tests {
             seed_urls: vec![],
             hosts: vec![],
             archive_dir: "./tmp".into(),
+            reset: Default::default(),
         }
     }
 
@@ -362,6 +368,7 @@ mod run_system_tests {
             seed_urls: vec![], // important: keep empty
             hosts: vec![],
             archive_dir: "./tmp".into(),
+            reset: Default::default(),
         }
     }
 

@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
-use map_macro::hash_map;
+use map_macro::{hash_map, vec_deque};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -101,6 +101,7 @@ fn convert(path: &Path, fetch_time: u64) -> Result<HistoricalPage, anyhow::Error
         }),
         historical_snapshots: VecDeque::new(),
         all_links: content.links,
+        history: vec_deque![fetch_time],
     };
     Ok(page)
 }

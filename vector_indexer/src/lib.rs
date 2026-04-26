@@ -166,7 +166,7 @@ mod tests {
     use super::*;
     use common::types::Priority;
     use qdrant_client::qdrant::PointsOperationResponse;
-    use std::{collections::VecDeque, fs};
+    use std::fs;
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
     use vector_common::MockEmbedder;
@@ -232,8 +232,9 @@ mod tests {
                     ),
                 }],
             }),
-            historical_snapshots: VecDeque::new(),
-            all_links: std::collections::HashSet::new(),
+            historical_snapshots: Default::default(),
+            all_links: Default::default(),
+            history: Default::default(),
         };
 
         println!("full: '{}'", serde_json::to_string(&w).unwrap());

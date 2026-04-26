@@ -1,12 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     fs::File,
     io::BufReader,
     path::PathBuf,
     sync::Arc,
 };
 
-use anyhow::Context;
 use common::{
     Archiver, JsonLd,
     historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot},
@@ -139,6 +138,11 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             Some(_metadata) => {}
         };
 
+        // Replace task if page == 1
+        if page_number == 1 {
+            self.task = page.task.clone()
+        }
+
         debug!(?self.filename, ?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
     }
 
@@ -161,19 +165,9 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
         }
         let article_id = self.task.article_id;
         // 1. Read from archive, or create empty record
-        let mut historical_page = File::open(&self.filename)
-            .context("opening")
-            .map(BufReader::new)
-            .and_then(|reader| serde_json::from_reader(reader).context("reading"))
-            .or_else(|_| {
-                Ok::<HistoricalPage, i8>(HistoricalPage {
-                    task: self.task,
-                    current: None,
-                    historical_snapshots: VecDeque::new(),
-                    all_links: HashSet::new(),
-                })
-            })
-            .unwrap();
+        let (mut historical_page, new_file) = self.read_or_default();
+
+        historical_page.task = self.task;
         debug!(?historical_page, "historical page");
         // 2. Add each page to record for current 'archival date'
         // 2a Sort by page
@@ -187,11 +181,32 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             .write_page(&self.filename)
             .inspect_err(|err| error!("Failed to write to {:?}: {:?}", self.filename, err))?;
         // 4. Update db
-        self.db.mark_complete_article(article_id)
+        let r = self.db.mark_complete_article(article_id);
+        info!(?self.filename, new_file, "finalized");
+        r
     }
 
     fn is_page(&self, url: &str) -> bool {
         remove_pagination_params(&self.task.url) == remove_pagination_params(url)
+    }
+
+    fn read_or_default(&self) -> (HistoricalPage, bool) {
+        if std::fs::exists(&self.filename)
+            .inspect_err(|e| error!("Cannot test for existence {:?}: {:?}", self.filename, e))
+            .unwrap()
+        {
+            // File exists
+            let file = File::open(&self.filename)
+                .inspect_err(|e| error!("Cannot open {:?}: {:?}", self.filename, e))
+                .unwrap();
+            let reader = BufReader::new(file);
+            let historical_page = serde_json::from_reader(reader)
+                .inspect_err(|e| error!("Failed to read from {:?}: {:?}", self.filename, e))
+                .unwrap();
+            (historical_page, false)
+        } else {
+            (HistoricalPage::new(self.task.clone()), true)
+        }
     }
 }
 
@@ -680,12 +695,7 @@ mod tests {
         let file_path = dir.path().join("article.json");
 
         // Create initial file
-        let initial = HistoricalPage {
-            task: make_task(1, "https://example.com"),
-            current: None,
-            historical_snapshots: Default::default(),
-            all_links: Default::default(),
-        };
+        let initial = HistoricalPage::new(make_task(1, "https://example.com"));
 
         initial.write_page(&file_path).unwrap();
 
