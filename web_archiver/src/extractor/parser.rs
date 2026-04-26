@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use common::{JsonLd, parse_jsonld};
 use common::markdown::html_to_markdown;
 use common::types::Priority;
 use common::url::{canonicalize_url, resolve_relative_link};
+use common::{JsonLd, parse_jsonld};
 use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};

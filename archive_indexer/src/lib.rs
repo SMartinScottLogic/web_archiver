@@ -1,7 +1,8 @@
 use anyhow::Result;
-use common::types::WithTask;
 use csv::{Writer, WriterBuilder};
 use indicatif::ProgressBar;
+use serde_json::Value;
+use serde_json_path::JsonPath;
 use std::fs::{File, read_dir};
 use std::path::Path;
 use std::time::Duration;
@@ -55,7 +56,7 @@ pub fn create_archive_index(archive_root: &str, output_csv: &str, pb: &ProgressB
         .from_path(output_csv)?;
 
     // Write header
-    wtr.write_record(["json_file_path", "url"])?;
+    wtr.write_record(["json_file_path", "url", "authors"])?;
 
     // Recursively scan archive folder
     scan_dir(Path::new(archive_root), &mut wtr, pb)?;
@@ -77,10 +78,12 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> 
 
             // Read JSON file to extract URL (format-agnostic)
             let file = File::open(&path)?;
-            match serde_json::from_reader::<_, WithTask>(file) {
+            match serde_json::from_reader::<_, Value>(file) {
                 Ok(value) => {
-                    let url = value.task.url;
-                    wtr.write_record(&[path.to_string_lossy().to_string(), url])?;
+                    if let Ok((url, authors)) = get_data_points(&value) {
+                        //println!("json path | url = {:?}, authors = {:?}", url, authors);
+                        wtr.write_record([path.to_str().unwrap_or_default(), &url, &authors])?;
+                    }
                 }
                 Err(_) => {
                     // Skip files that can't be parsed as JSON
@@ -92,11 +95,37 @@ fn scan_dir(dir: &Path, wtr: &mut Writer<File>, pb: &ProgressBar) -> Result<()> 
     Ok(())
 }
 
+fn get_data_points(value: &Value) -> anyhow::Result<(String, String)> {
+    let url_path = JsonPath::parse("$.task.url")?;
+    let authors_path = JsonPath::parse("$.current.metadata.authors")?;
+    let url = url_path
+        .query(value)
+        .first()
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let authors = authors_path
+        .query(value)
+        .first()
+        .cloned()
+        .and_then(|v| {
+            v.as_array().map(|e| {
+                e.iter()
+                    .map(|e| e.as_str().map(|s| s.to_string()))
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default()
+            })
+        })
+        .unwrap_or_default()
+        .join(",");
+    Ok((url, authors))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use common::historical::{HistoricalContent, HistoricalPage, HistoricalSnapshot};
-    use common::types::{FetchTask, PageMetadata, Priority};
+    use common::types::{FetchTask, PageMetadata, Priority, WithTask};
     use std::collections::HashSet;
     use std::fs::{self, File};
     use std::io::Read;

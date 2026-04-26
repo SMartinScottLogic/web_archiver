@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::page::PageReader;
+use std::path::PathBuf;
 
 use mockall::automock;
 
