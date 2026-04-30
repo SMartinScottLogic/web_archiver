@@ -25,7 +25,7 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-axum = "0.7"
+axum = "0.8"
 reqwest = { workspace = true, features = ["stream"] }
 tracing-test = { workspace = true }
 tempfile = { workspace = true }
