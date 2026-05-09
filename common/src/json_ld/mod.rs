@@ -169,6 +169,7 @@ pub enum OneOrMany<T> {
     Many(Vec<T>),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrObject<T> {

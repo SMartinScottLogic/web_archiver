@@ -14,6 +14,7 @@ use crate::{
     url::{hash_url, sanitize_segment},
 };
 
+#[allow(dead_code)]
 pub struct FullPathArchiver {
     archive_dir: PathBuf,
 }

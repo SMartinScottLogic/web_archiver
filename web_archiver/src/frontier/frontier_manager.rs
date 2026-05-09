@@ -109,7 +109,12 @@ impl FrontierManager {
         let fetched = self.db.count_fetched().unwrap_or(0);
         let pending = self.db.count_pending().unwrap_or(0);
         let total = fetched + pending;
-        info!(fetched, total, progress = (fetched as f64 * 100.0) / total as f64, "Frontier progress");
+        info!(
+            fetched,
+            total,
+            progress = (fetched as f64 * 100.0) / total as f64,
+            "Frontier progress"
+        );
 
         debug!(
             "receiving links ({}/{})",

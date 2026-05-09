@@ -8,6 +8,7 @@ use crate::{
     url::{remove_pagination_params, url_to_filename},
 };
 
+#[allow(dead_code)]
 pub struct HistoricalArchiver {
     archive_dir: PathBuf,
 }
