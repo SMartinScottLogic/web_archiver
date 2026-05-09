@@ -200,6 +200,7 @@ mod tests {
             db: ":memory:".into(),
             seed_urls: vec![],
             hosts: vec![],
+            mailboxes: vec![],
             archive_dir: "./tmp".into(),
             reset: Default::default(),
         }
@@ -367,6 +368,7 @@ mod run_system_tests {
             db: ":memory:".into(),
             seed_urls: vec![], // important: keep empty
             hosts: vec![],
+            mailboxes: vec![],
             archive_dir: "./tmp".into(),
             reset: Default::default(),
         }

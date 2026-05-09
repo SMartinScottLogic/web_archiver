@@ -1,6 +1,6 @@
 use chrono::{NaiveDate, NaiveDateTime, TimeZone as _, Utc};
 use clap::Parser;
-use common::settings::Host;
+use common::settings::{Host, Mailbox};
 use figment::{
     Figment,
     providers::{Format as _, Serialized, Yaml},
@@ -13,6 +13,7 @@ pub struct Config {
     pub archive_dir: String,
     pub archive_time: i64,
     pub hosts: Vec<Host>,
+    pub mailboxes: Vec<Mailbox>,
     pub workers: usize,
     pub seed_urls: Vec<String>,
     pub noop_delay_millis: u64,
@@ -104,6 +105,7 @@ impl Default for Config {
             archive_dir: "archive".to_string(),
             archive_time: chrono::Utc::now().timestamp(),
             hosts: Default::default(),
+            mailboxes: Default::default(),
             workers: 1,
             seed_urls: Default::default(),
             noop_delay_millis: 500,

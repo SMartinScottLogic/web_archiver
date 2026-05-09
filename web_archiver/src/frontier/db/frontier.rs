@@ -126,8 +126,7 @@ impl FrontierDb {
         let tx = conn.transaction()?;
         let tasks = {
             let mut stmt = tx
-                .prepare(Self::GET_NEXT_FAST,
-                )
+                .prepare(Self::GET_NEXT_FAST)
                 .inspect_err(|e| error!("Failed to get next url: {:?}", e))?;
             stmt.query_map([limit], |row| {
                 Ok(FetchTask {
