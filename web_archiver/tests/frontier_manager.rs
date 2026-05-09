@@ -70,8 +70,8 @@ async fn test_seed_batch_insertion_and_claim() {
         ],
     );
     // Should be able to claim both seeds
-    let t1 = mgr.db.claim_next().unwrap().unwrap();
-    let t2 = mgr.db.claim_next().unwrap().unwrap();
+    let t1 = mgr.db.claim_next(1).unwrap().pop().unwrap();
+    let t2 = mgr.db.claim_next(1).unwrap().pop().unwrap();
     dbg!(t1.url.clone(), t2.url.clone());
     assert!(t1.url == "http://foo.com/" || t1.url == "http://bar.com/");
     assert!(t2.url == "http://foo.com/" || t2.url == "http://bar.com/");
@@ -108,10 +108,10 @@ async fn test_process_discovered_links_batching_and_filtering() {
     };
     mgr.process_discovered_links(msg).await;
     // Only http://foo.com/page1 should be enqueued
-    let t = mgr.db.claim_next().unwrap().unwrap();
+    let t = mgr.db.claim_next(1).unwrap().pop().unwrap();
     assert_eq!(t.url, "http://foo.com/page1");
     assert_eq!(t.depth, 1);
     assert_eq!(t.discovered_from, Some(1));
     // No more tasks
-    assert!(mgr.db.claim_next().unwrap().is_none());
+    assert!(mgr.db.claim_next(1).unwrap().pop().is_none());
 }

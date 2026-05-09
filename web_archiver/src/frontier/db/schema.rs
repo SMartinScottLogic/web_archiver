@@ -66,6 +66,12 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_urls_domain
         ON urls(domain);
+
+        CREATE INDEX IF NOT EXISTS idx_frontier_status_priority_depth
+        ON frontier(status, priority DESC, depth);
+        
+        CREATE INDEX IF NOT EXISTS idx_urls_domain_id
+        ON urls(domain, id);
         "#,
     )
 }

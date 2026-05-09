@@ -52,7 +52,7 @@ fn test_enqueue_and_claim() {
     };
     db.enqueue_batch(std::slice::from_ref(&task), false)
         .unwrap();
-    let claimed = db.claim_next().unwrap().unwrap();
+    let claimed = db.claim_next(1).unwrap().pop().unwrap();
     assert_eq!(claimed.url, task.url);
     assert_eq!(claimed.depth, task.depth);
     assert_eq!(claimed.priority, task.priority);
@@ -91,14 +91,14 @@ fn test_enqueue_batch_deduplication() {
     // Only two unique URLs should be present
     let mut seen = vec![];
     for _ in 0..2 {
-        let t = db.claim_next().unwrap().unwrap();
+        let t = db.claim_next(1).unwrap().pop().unwrap();
         seen.push(t.url.clone());
         db.mark_complete(t.url_id).unwrap();
     }
     assert!(seen.contains(&t1.url));
     assert!(seen.contains(&t2.url));
     // No more tasks
-    assert!(db.claim_next().unwrap().is_none());
+    assert!(db.claim_next(1).unwrap().pop().is_none());
 }
 
 #[test]
@@ -121,11 +121,11 @@ fn test_mark_complete_and_counts() {
         discovered_from: None,
     };
     db.enqueue_batch(&[t1.clone(), t2.clone()], false).unwrap();
-    let c1 = db.claim_next().unwrap().unwrap();
+    let c1 = db.claim_next(1).unwrap().pop().unwrap();
     db.mark_complete(c1.url_id).unwrap();
     assert_eq!(db.count_fetched().unwrap(), 1);
     assert_eq!(db.count_pending().unwrap(), 1);
-    let c2 = db.claim_next().unwrap().unwrap();
+    let c2 = db.claim_next(1).unwrap().pop().unwrap();
     db.mark_complete(c2.url_id).unwrap();
     assert_eq!(db.count_fetched().unwrap(), 2);
     assert_eq!(db.count_pending().unwrap(), 0);
