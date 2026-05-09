@@ -92,20 +92,44 @@ impl FrontierDb {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    const GET_NEXT_BALANCED_SLOW: &'static str = r#"
+    SELECT url_id, url, article_id, depth, priority, discovered_from, domain
+         FROM (
+             SELECT 
+                 f.url_id,
+                 u.url,
+                 u.article_id,
+                 f.depth,
+                 f.priority,
+                 f.discovered_from,
+                 u.domain,
+                 ROW_NUMBER() OVER (
+                     PARTITION BY u.domain
+                     ORDER BY (f.priority - f.depth) DESC
+                 ) as rn
+             FROM frontier f
+             JOIN urls u ON f.url_id = u.id
+             WHERE f.status = 'pending'
+         )
+         WHERE rn = 1
+         LIMIT ?1"#;
+    #[allow(dead_code)]
+    const GET_NEXT_FAST: &'static str = r#"
+    SELECT f.url_id, u.url, u.article_id, f.depth, f.priority, f.discovered_from
+    FROM frontier f JOIN urls u ON f.url_id = u.id 
+    WHERE f.status = 'pending'
+    ORDER BY (f.priority-f.depth) DESC LIMIT ?1"#;
     /// Atomically claim the next pending task for fetching
-    pub fn claim_next(&self) -> Result<Option<FetchTask>> {
+    pub fn claim_next(&self, limit: isize) -> Result<Vec<FetchTask>> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        let task_opt = {
+        let tasks = {
             let mut stmt = tx
-                .prepare(
-                    "SELECT f.url_id, u.url, u.article_id, f.depth, f.priority, f.discovered_from \
-                 FROM frontier f JOIN urls u ON f.url_id = u.id \
-                 WHERE f.status = 'pending' \
-                 ORDER BY (f.priority-f.depth) DESC LIMIT 1",
+                .prepare(Self::GET_NEXT_FAST,
                 )
                 .inspect_err(|e| error!("Failed to get next url: {:?}", e))?;
-            stmt.query_map([], |row| {
+            stmt.query_map([limit], |row| {
                 Ok(FetchTask {
                     url_id: row.get(0)?,
                     url: row.get(1)?,
@@ -116,18 +140,17 @@ impl FrontierDb {
                 })
             })
             .inspect_err(|e| error!("Failed to get next url: {:?}", e))?
-            .next()
-            .transpose()
+            .collect::<Result<Vec<_>>>()
             .inspect_err(|e| error!("Failed to get next url: {:?}", e))?
         };
-        if let Some(ref task) = task_opt {
+        for task in &tasks {
             tx.execute(
                 "UPDATE frontier SET status = 'in_progress', claimed_at = strftime('%s','now') WHERE url_id = ?1",
                 params![task.url_id],
             )?;
         }
         tx.commit()?;
-        Ok(task_opt)
+        Ok(tasks)
     }
 
     /// Count the number of fetched pages (status = 'complete')

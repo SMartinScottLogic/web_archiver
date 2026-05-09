@@ -22,6 +22,7 @@ pub struct FrontierManager {
     user_agent: String,
     robots_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
     http_client: Client,
+    queue: Vec<FetchTask>,
 }
 
 impl FrontierManager {
@@ -50,6 +51,7 @@ impl FrontierManager {
             user_agent,
             robots_cache: Arc::new(Mutex::new(HashMap::new())),
             http_client: Client::new(),
+            queue: Default::default(),
         }
     }
 
@@ -81,9 +83,17 @@ impl FrontierManager {
         self.db.reset_all().context("reset queue")
     }
 
+    fn claim_next(&mut self) -> anyhow::Result<Option<FetchTask>> {
+        if self.queue.is_empty() {
+            let mut next_batch = self.db.claim_next(10)?;
+            self.queue.append(&mut next_batch);
+        }
+        Ok(self.queue.pop())
+    }
+
     async fn poll_loop(&mut self) {
         if self.tx_fetch.capacity() > 0
-            && let Ok(Some(task)) = self.db.claim_next()
+            && let Ok(Some(task)) = self.claim_next()
         {
             if self.should_crawl(&task.url).await {
                 if (self.tx_fetch.send(task).await).is_err() {
@@ -99,7 +109,7 @@ impl FrontierManager {
         let fetched = self.db.count_fetched().unwrap_or(0);
         let pending = self.db.count_pending().unwrap_or(0);
         let total = fetched + pending;
-        info!(fetched, total, "Frontier progress");
+        info!(fetched, total, progress = (fetched as f64 * 100.0) / total as f64, "Frontier progress");
 
         debug!(
             "receiving links ({}/{})",
@@ -267,6 +277,7 @@ mod tests {
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
+            queue: Default::default(),
         }
     }
 
@@ -390,6 +401,7 @@ mod tests {
                 "example.com".to_string() => None
             ])),
             http_client: Client::new(),
+            queue: Default::default(),
         };
 
         // Start the run method in a task but don't move mgr afterwards
@@ -439,6 +451,7 @@ mod tests {
             user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
+            queue: Default::default(),
         };
 
         // Send a link message
@@ -499,6 +512,7 @@ mod tests {
                 "example.com".to_string() => None
             ])),
             http_client: Client::new(),
+            queue: Default::default(),
         };
 
         // Start the run method in a task

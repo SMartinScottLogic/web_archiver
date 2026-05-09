@@ -166,7 +166,7 @@ where
     let (tx_done, rx_done) = mpsc::channel::<ArticleId>(100);
 
     // Router event loop
-    let router = Router::new(archiver, Arc::new(storage_db), tx_done, max_concurrent * 2);
+    let router = Router::new(archiver, Arc::new(storage_db), tx_done, max_concurrent * 10);
     System::spawn_router_loop(router, rx_extracted, rx_done);
 
     // --- 8. Wait forever ---
