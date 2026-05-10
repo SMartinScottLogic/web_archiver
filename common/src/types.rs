@@ -41,6 +41,8 @@ pub struct FetchTask {
     pub priority: Priority,
 
     pub discovered_from: Option<i64>,
+    #[serde(default)]
+    pub use_playwright: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +82,7 @@ mod tests {
             depth: 0,
             priority: Priority::default(),
             discovered_from: None,
+            use_playwright: false,
         };
         let t2 = t1.clone();
         assert_eq!(t1.url, t2.url);

@@ -8,6 +8,8 @@ pub struct Host {
     pub domains: Vec<String>,
     #[serde(default)]
     pub pages: PageType,
+    #[serde(default)]
+    pub use_playwright: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -29,6 +31,8 @@ pub struct Mailbox {
     pub email: String,
     pub password: String,
     pub r#box: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]

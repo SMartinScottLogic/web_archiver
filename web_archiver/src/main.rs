@@ -4,17 +4,16 @@ use tracing::level_filters::LevelFilter;
 mod extractor;
 mod fetcher;
 mod frontier;
+mod mail;
 mod settings;
 mod system;
 
-use tracing::{debug, info};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use common::settings::CONFIG_FILE;
-use settings::Config;
-
 use crate::frontier::db::frontier::FrontierDb;
+use crate::settings::load_config;
 
 /// Initialize logging ---
 fn setup_logging() {
@@ -36,13 +35,9 @@ async fn main() {
     setup_logging();
     info!("Starting Web Archiver (Migrated)");
 
-    // Load allowed web_archiver config
-    let config =
-        Config::file(CONFIG_FILE).unwrap_or_else(|_| panic!("Failed to load {}", CONFIG_FILE));
+    load_config();
 
-    debug!(?config, "config");
-
-    let _ = system::run_system::<DefaultArchiver, FrontierDb>(config).await;
+    let _ = system::run_system::<DefaultArchiver, FrontierDb>().await;
 
     info!("Shutting down");
 }

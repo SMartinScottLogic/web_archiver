@@ -29,6 +29,7 @@ fn task(id: i64, url: &str) -> WithTask {
             depth: 0,
             priority: common::types::Priority::Normal,
             discovered_from: None,
+            use_playwright: false,
         },
     }
 }

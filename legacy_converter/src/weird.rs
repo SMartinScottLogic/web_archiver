@@ -96,6 +96,7 @@ fn to_extracted_page(
             depth: u32::MAX,
             priority: Priority::default(),
             discovered_from,
+            use_playwright: false,
         },
         history: vec_deque![fetch_time],
     };

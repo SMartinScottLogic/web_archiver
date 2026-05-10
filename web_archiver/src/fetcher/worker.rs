@@ -3,16 +3,11 @@ use common::types::FetchTask;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
 
-use crate::extractor::FetchedPage;
+use crate::{extractor::FetchedPage, settings::CONFIG};
 
-pub async fn worker_loop_single(
-    task: FetchTask,
-    archive_time: i64,
-    user_agent: &str,
-    tx: Sender<FetchedPage>,
-) {
+pub async fn worker_loop_single(task: FetchTask, tx: Sender<FetchedPage>) {
     let client = reqwest::Client::builder()
-        .user_agent(user_agent)
+        .user_agent(&CONFIG.get().unwrap().user_agent)
         .build()
         .unwrap();
 
@@ -24,7 +19,7 @@ pub async fn worker_loop_single(
                 task,
                 status_code: 200,
                 content_type: None,
-                fetch_time: archive_time,
+                fetch_time: CONFIG.get().unwrap().archive_time,
                 body: std::sync::Arc::new(body),
             };
             debug!("Fetched page successfully: {}", url);
@@ -55,6 +50,8 @@ async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, reqw
 mod tests {
     use common::types::Priority;
 
+    use crate::settings::test_setup::setup_test_config;
+
     use super::*;
 
     #[tokio::test]
@@ -69,6 +66,8 @@ mod tests {
         use common::types::FetchTask;
         use tokio::sync::mpsc;
 
+        setup_test_config();
+
         // Use a known good URL for testing (httpbin.org is reliable for tests)
         let task = FetchTask {
             article_id: 0,
@@ -77,9 +76,10 @@ mod tests {
             depth: 0,
             priority: Priority::default(),
             discovered_from: None,
+            use_playwright: false,
         };
         let (tx, mut rx) = mpsc::channel(1);
-        worker_loop_single(task, 0, "test", tx).await;
+        worker_loop_single(task, tx).await;
         // Should receive a FetchedPage
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);

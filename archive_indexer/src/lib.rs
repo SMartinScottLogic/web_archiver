@@ -140,6 +140,7 @@ mod tests {
                 depth: 0,
                 priority: Priority::default(),
                 discovered_from: None,
+                use_playwright: false,
             },
         }
     }
@@ -173,6 +174,7 @@ mod tests {
             depth: 0,
             priority: Priority::default(),
             discovered_from: None,
+            use_playwright: false,
         });
         page.add_snapshot(snapshot).unwrap();
         page
