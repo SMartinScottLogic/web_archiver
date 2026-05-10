@@ -25,6 +25,12 @@ url = { workspace = true }
 figment = {version = "0.10.19", features = ["yaml"]}
 mockall = { workspace = true }
 
+imap = "2.4.1"
+native-tls = "0.2"
+uuid = { version = "1", features = ["v4"] }
+mailparse = "0.15"
+email = "0.0.21"
+
 [dependencies.common]
 path = "../common"
 

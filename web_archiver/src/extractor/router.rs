@@ -87,6 +87,8 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                 self.pages.entry(link.to_string()).or_insert(false);
                 priority = Priority::Article;
             }
+            // TODO Set this from Hosts
+            let use_playwright = false;
             batch.push(FetchTask {
                 article_id: self.task.article_id,
                 url_id: 0, // Will be set by DB
@@ -94,6 +96,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                 depth: self.task.depth + 1,
                 priority,
                 discovered_from: Some(self.task.url_id),
+                use_playwright,
             });
         }
         if !batch.is_empty() {
@@ -329,6 +332,7 @@ mod tests {
             depth: 0,
             priority: Priority::default(),
             discovered_from: None,
+            use_playwright: false,
         }
     }
 

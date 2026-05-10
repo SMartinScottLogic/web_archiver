@@ -80,6 +80,7 @@ fn convert(path: &Path, fetch_time: u64) -> Result<HistoricalPage, anyhow::Error
             depth: u32::MAX,
             priority: Priority::default(),
             discovered_from,
+            use_playwright: false,
         },
         current: Some(HistoricalSnapshot {
             content_markdown: vec![HistoricalContent {

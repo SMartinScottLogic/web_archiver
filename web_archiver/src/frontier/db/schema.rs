@@ -24,7 +24,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             url TEXT NOT NULL UNIQUE,
             article_id INTEGER NOT NULL,
             domain TEXT NOT NULL,
-            discovered_at INTEGER NOT NULL
+            discovered_at INTEGER NOT NULL,
+            use_playwright INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS frontier (
@@ -56,6 +57,13 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             source_url_id INTEGER NOT NULL,
             target_url_id INTEGER NOT NULL,
             discovered_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS emails (
+            id INTEGER PRIMARY KEY,
+            filename TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
         );
 
         CREATE INDEX IF NOT EXISTS idx_articles_url

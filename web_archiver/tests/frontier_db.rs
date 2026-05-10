@@ -19,7 +19,8 @@ fn setup_db() -> FrontierDb {
             url TEXT UNIQUE NOT NULL,
             article_id INTEGER NOT NULL,
             domain TEXT,
-            discovered_at INTEGER
+            discovered_at INTEGER,
+            use_playwright INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE frontier (
             url_id INTEGER,
@@ -49,6 +50,7 @@ fn test_enqueue_and_claim() {
         depth: 0,
         priority: Priority::default(),
         discovered_from: None,
+        use_playwright: false,
     };
     db.enqueue_batch(std::slice::from_ref(&task), false)
         .unwrap();
@@ -69,6 +71,7 @@ fn test_enqueue_batch_deduplication() {
         depth: 0,
         priority: Priority::default(),
         discovered_from: None,
+        use_playwright: false,
     };
     let t2 = FetchTask {
         article_id: 0,
@@ -77,6 +80,7 @@ fn test_enqueue_batch_deduplication() {
         depth: 1,
         priority: Priority::default(),
         discovered_from: Some(1),
+        use_playwright: false,
     };
     let t3 = FetchTask {
         article_id: 0,
@@ -85,6 +89,7 @@ fn test_enqueue_batch_deduplication() {
         depth: 2,
         priority: Priority::default(),
         discovered_from: Some(2),
+        use_playwright: false,
     };
     db.enqueue_batch(&[t1.clone(), t2.clone(), t3.clone()], false)
         .unwrap();
@@ -111,6 +116,7 @@ fn test_mark_complete_and_counts() {
         depth: 0,
         priority: Priority::default(),
         discovered_from: None,
+        use_playwright: false,
     };
     let t2 = FetchTask {
         article_id: 0,
@@ -119,6 +125,7 @@ fn test_mark_complete_and_counts() {
         depth: 0,
         priority: Priority::default(),
         discovered_from: None,
+        use_playwright: false,
     };
     db.enqueue_batch(&[t1.clone(), t2.clone()], false).unwrap();
     let c1 = db.claim_next(1).unwrap().pop().unwrap();

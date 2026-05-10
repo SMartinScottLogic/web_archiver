@@ -10,7 +10,6 @@ use tracing::error;
 pub trait FrontierDbTrait: Send + Sync + 'static {
     fn connect(conn: Arc<Mutex<Connection>>) -> Self;
     fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> Result<(), anyhow::Error>;
-
     fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
 }
 #[derive(Clone)]
@@ -60,8 +59,8 @@ impl FrontierDb {
                 |row: &rusqlite::Row<'_>| row.get(0),
             )?;
             tx.execute(
-                "INSERT OR IGNORE INTO urls (url, domain, discovered_at, article_id) VALUES (?1, ?2, strftime('%s','now'), ?3)",
-                params![&task.url, extract_domain(&task.url).unwrap_or_default(), article_id],
+                "INSERT OR IGNORE INTO urls (url, domain, discovered_at, article_id, use_playwright) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
+                params![&task.url, extract_domain(&task.url).unwrap_or_default(), article_id, task.use_playwright],
             )?;
             let url_id: i64 = tx.query_row(
                 "SELECT id FROM urls WHERE url = ?1",
@@ -94,7 +93,7 @@ impl FrontierDb {
 
     #[allow(dead_code)]
     const GET_NEXT_BALANCED_SLOW: &'static str = r#"
-    SELECT url_id, url, article_id, depth, priority, discovered_from, domain
+    SELECT url_id, url, article_id, depth, priority, discovered_from, use_playwright, domain
          FROM (
              SELECT 
                  f.url_id,
@@ -103,6 +102,7 @@ impl FrontierDb {
                  f.depth,
                  f.priority,
                  f.discovered_from,
+                 u.use_playwright,
                  u.domain,
                  ROW_NUMBER() OVER (
                      PARTITION BY u.domain
@@ -110,15 +110,15 @@ impl FrontierDb {
                  ) as rn
              FROM frontier f
              JOIN urls u ON f.url_id = u.id
-             WHERE f.status = 'pending'
+             WHERE f.status = 'pending' AND u.use_playwright = 0
          )
          WHERE rn = 1
          LIMIT ?1"#;
     #[allow(dead_code)]
     const GET_NEXT_FAST: &'static str = r#"
-    SELECT f.url_id, u.url, u.article_id, f.depth, f.priority, f.discovered_from
+    SELECT f.url_id, u.url, u.article_id, f.depth, f.priority, f.discovered_from, u.use_playwright
     FROM frontier f JOIN urls u ON f.url_id = u.id 
-    WHERE f.status = 'pending'
+    WHERE f.status = 'pending' AND u.use_playwright = 0
     ORDER BY (f.priority-f.depth) DESC LIMIT ?1"#;
     /// Atomically claim the next pending task for fetching
     pub fn claim_next(&self, limit: isize) -> Result<Vec<FetchTask>> {
@@ -136,6 +136,7 @@ impl FrontierDb {
                     depth: row.get(3)?,
                     priority: row.get(4)?,
                     discovered_from: row.get(5)?,
+                    use_playwright: row.get(6)?,
                 })
             })
             .inspect_err(|e| error!("Failed to get next url: {:?}", e))?

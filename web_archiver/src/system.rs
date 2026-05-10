@@ -4,16 +4,18 @@ use rusqlite::Connection;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::extractor::parser::extractor_loop;
 use crate::fetcher::worker::worker_loop_single;
 use crate::frontier::db::frontier::FrontierDbTrait;
 use crate::frontier::frontier_manager::FrontierManager;
+use crate::mail::{EmailDb, MailboxPoller};
 use tokio::sync::Semaphore;
 
-use crate::settings::Config;
+use crate::settings::CONFIG;
 
 use crate::extractor::router::{FetchedArticlePage, Router};
 use crate::extractor::{DiscoveredLinks, FetchedPage};
@@ -57,17 +59,14 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
         mut rx_fetch: mpsc::Receiver<FetchTask>,
         tx_fetched: mpsc::Sender<FetchedPage>,
         semaphore: Arc<Semaphore>,
-        config: Config,
     ) {
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
-                let user_agent = config.user_agent.clone();
-                let archive_time = config.archive_time;
 
                 tokio::spawn(async move {
-                    worker_loop_single(task, archive_time, &user_agent, tx).await;
+                    worker_loop_single(task, tx).await;
                     drop(permit);
                 });
             }
@@ -109,23 +108,34 @@ where
     }
 }
 
-pub async fn run_system<A, DB>(config: Config) -> anyhow::Result<()>
+impl<A, DB> System<A, DB>
 where
     A: Archiver + Send + Sync + 'static,
     DB: FrontierDbTrait,
 {
-    let noop_delay_millis = config.noop_delay_millis;
-    let max_concurrent = config.workers;
+    pub fn spawn_email_poller_loop(poller: MailboxPoller<DB>) {
+        tokio::spawn(async move {
+            loop {
+                poller.poll_all();
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+}
 
-    let conn = Connection::open(&config.db).expect("failed to open DB");
+pub async fn run_system<A, DB>() -> anyhow::Result<()>
+where
+    A: Archiver + Send + Sync + 'static,
+    DB: FrontierDbTrait,
+{
+    debug!("config: {:?}", CONFIG.get());
+
+    let conn = Connection::open(&CONFIG.get().unwrap().db).expect("failed to open DB");
     crate::frontier::db::schema::settings(&conn).expect("failed to set DB performance settings");
     crate::frontier::db::schema::init_schema(&conn).expect("failed to init schema");
     let db_arc = Arc::new(Mutex::new(conn));
 
-    // --- 2. Seed URLs ---
-    let seed_urls = config.seed_urls.clone();
-
-    // --- 3. Create channels ---
+    // --- Create channels ---
     // Frontier → Worker
     let (tx_fetch, rx_fetch) = mpsc::channel::<FetchTask>(100);
     // Worker → Extractor
@@ -135,39 +145,44 @@ where
     // Storage → Frontier
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
-    // --- 4. Spawn Frontier Manager ---
-    let mut frontier_manager = FrontierManager::new(
-        config.user_agent.clone(),
-        tx_fetch,
-        rx_links,
-        noop_delay_millis,
-        config.hosts.clone(),
-        db_arc.clone(),
-    );
-    if config.reset {
+    // --- Spawn Frontier Manager ---
+    let mut frontier_manager = FrontierManager::new(tx_fetch, rx_links, db_arc.clone());
+    if CONFIG.get().unwrap().reset {
         let num_reset = frontier_manager.reset_all()?;
         info!("Reset all fetch tasks: {}", num_reset);
     }
-    frontier_manager.add_seeds(&seed_urls);
+    frontier_manager.add_seeds();
     System::<A, DB>::spawn_frontier(frontier_manager);
 
-    // --- 5. Spawn Worker Tasks ---
+    // --- Spawn Worker Tasks ---
     // This task owns the receiver and spawns multiple async fetch tasks
-    let sem = Arc::new(Semaphore::new(max_concurrent));
-    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, sem, config.clone());
+    let sem = Arc::new(Semaphore::new(CONFIG.get().unwrap().workers));
+    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, sem);
 
-    // --- 6. Spawn Extractor Task ---
+    // --- Spawn Extractor Task ---
     System::<A, DB>::spawn_extractor(rx_fetched, tx_extracted, tx_links);
 
-    // --- 7. Spawn Storage Task ---
-    let archiver = A::for_path(PathBuf::from(config.archive_dir));
+    // --- Spawn Storage Task ---
+    let archiver = A::for_path(PathBuf::from(&CONFIG.get().unwrap().archive_dir));
     let storage_db = DB::connect(db_arc.clone());
 
     let (tx_done, rx_done) = mpsc::channel::<ArticleId>(100);
 
     // Router event loop
-    let router = Router::new(archiver, Arc::new(storage_db), tx_done, max_concurrent * 10);
+    let router = Router::new(
+        archiver,
+        Arc::new(storage_db),
+        tx_done,
+        CONFIG.get().unwrap().workers * 10,
+    );
     System::spawn_router_loop(router, rx_extracted, rx_done);
+
+    // Email processor loop
+    let storage_db = DB::connect(db_arc.clone());
+    let poller_db = EmailDb::connect(db_arc.clone());
+    let _ = poller_db.reset()?;
+    let poller = MailboxPoller::new(Arc::new(storage_db), Arc::new(poller_db));
+    System::<A, DB>::spawn_email_poller_loop(poller);
 
     // --- 8. Wait forever ---
     tokio::signal::ctrl_c()
@@ -187,24 +202,7 @@ mod tests {
     use crate::extractor::router::FetchedArticlePage;
     use crate::extractor::{DiscoveredLinks, FetchedPage};
     use crate::frontier::db::frontier::MockFrontierDbTrait;
-    use crate::settings::Config;
     use common::types::{ArticleId, FetchTask};
-
-    // Dummy config helper
-    fn test_config() -> Config {
-        Config {
-            user_agent: "test-agent".into(),
-            archive_time: 0,
-            noop_delay_millis: 10,
-            workers: 2,
-            db: ":memory:".into(),
-            seed_urls: vec![],
-            hosts: vec![],
-            mailboxes: vec![],
-            archive_dir: "./tmp".into(),
-            reset: Default::default(),
-        }
-    }
 
     // --------------------------------------------------
     // ✅ Test: spawn_workers processes tasks
@@ -215,11 +213,8 @@ mod tests {
         let (tx_fetched, rx_fetched) = mpsc::channel::<FetchedPage>(10);
 
         let semaphore = Arc::new(Semaphore::new(1));
-        let config = test_config();
 
-        System::<MockArchiver, MockFrontierDbTrait>::spawn_workers(
-            rx_fetch, tx_fetched, semaphore, config,
-        );
+        System::<MockArchiver, MockFrontierDbTrait>::spawn_workers(rx_fetch, tx_fetched, semaphore);
 
         // Send a dummy task
         let task = FetchTask {
@@ -229,6 +224,7 @@ mod tests {
             url_id: 0,
             priority: common::types::Priority::Normal,
             discovered_from: None,
+            use_playwright: false,
         };
 
         tx_fetch.send(task).await.unwrap();
@@ -269,6 +265,7 @@ mod tests {
                 depth: 0,
                 priority: common::types::Priority::Normal,
                 discovered_from: None,
+                use_playwright: false,
             },
         };
 
@@ -310,6 +307,7 @@ mod tests {
                 depth: 0,
                 priority: common::types::Priority::Normal,
                 discovered_from: None,
+                use_playwright: false,
             },
             content: "content".into(),
             fetch_time: 0,
@@ -341,6 +339,7 @@ mod tests {
                 url_id: 0,
                 priority: common::types::Priority::Normal,
                 discovered_from: None,
+                use_playwright: false,
             })
             .await
             .unwrap();
@@ -353,26 +352,10 @@ mod tests {
 #[cfg(test)]
 mod run_system_tests {
     use super::*;
-    use crate::frontier::db::frontier::MockFrontierDbTrait;
     use common::MockArchiver;
     use tokio::time::{Duration, sleep};
 
-    use crate::settings::Config;
-
-    fn test_config() -> Config {
-        Config {
-            user_agent: "test-agent".into(),
-            archive_time: 0,
-            noop_delay_millis: 10,
-            workers: 1,
-            db: ":memory:".into(),
-            seed_urls: vec![], // important: keep empty
-            hosts: vec![],
-            mailboxes: vec![],
-            archive_dir: "./tmp".into(),
-            reset: Default::default(),
-        }
-    }
+    use crate::frontier::db::frontier::MockFrontierDbTrait;
 
     // --------------------------------------------------
     // ✅ Test: run_system starts without crashing
@@ -386,11 +369,9 @@ mod run_system_tests {
         let db_ctx = MockFrontierDbTrait::connect_context();
         db_ctx.expect().returning(|_| MockFrontierDbTrait::new());
 
-        let config = test_config();
-
         // Run system in background
         let handle = tokio::spawn(async move {
-            let _ = run_system::<MockArchiver, MockFrontierDbTrait>(config).await;
+            let _ = run_system::<MockArchiver, MockFrontierDbTrait>().await;
         });
 
         // Let it run briefly

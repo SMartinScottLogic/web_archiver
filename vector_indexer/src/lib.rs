@@ -221,6 +221,7 @@ mod tests {
                 depth: 0,
                 priority: Priority::default(),
                 discovered_from: None,
+                use_playwright: false,
             },
             current: Some(common::historical::HistoricalSnapshot {
                 links: std::collections::HashSet::new(),

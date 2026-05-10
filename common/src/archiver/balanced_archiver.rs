@@ -425,6 +425,7 @@ mod tests {
                     depth: 0,
                     priority: Priority::default(),
                     discovered_from: None,
+                    use_playwright: false,
                 },
             };
             let file = fs::File::create(path)?;

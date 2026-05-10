@@ -47,6 +47,7 @@ mod tests {
             depth: 1,
             priority: Priority::default(),
             discovered_from: Some(1),
+            use_playwright: false,
         }
     }
 

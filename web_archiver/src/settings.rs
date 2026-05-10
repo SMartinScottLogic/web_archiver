@@ -1,11 +1,15 @@
+use std::sync::OnceLock;
+
 use chrono::{NaiveDate, NaiveDateTime, TimeZone as _, Utc};
 use clap::Parser;
+use common::settings::CONFIG_FILE;
 use common::settings::{Host, Mailbox};
 use figment::{
     Figment,
     providers::{Format as _, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +131,53 @@ impl Config {
     }
 }
 
+pub static CONFIG: OnceLock<Config> = OnceLock::new();
+
+#[allow(dead_code)]
+pub fn load_config() {
+    // Load allowed web_archiver config
+    let config =
+        Config::file(CONFIG_FILE).unwrap_or_else(|_| panic!("Failed to load {}", CONFIG_FILE));
+
+    debug!(?config, "config");
+    match CONFIG.set(config) {
+        Err(e) => panic!("Failed to set config: {:?}", e),
+        Ok(_) => info!("set config: {:?}", CONFIG.get()),
+    }
+}
+
+#[cfg(test)]
+pub mod test_setup {
+    use super::*;
+
+    pub fn setup_test_config() {
+        CONFIG.get_or_init(|| Config {
+            archive_dir: "test_archive".into(),
+            archive_time: 0,
+            hosts: vec![
+                Host {
+                    name: "Foo".to_string(),
+                    domains: vec!["foo.com".to_string()],
+                    pages: Default::default(),
+                    use_playwright: false,
+                },
+                Host {
+                    name: "Example".to_string(),
+                    domains: vec!["example.com".to_string()],
+                    pages: Default::default(),
+                    use_playwright: false,
+                },
+            ],
+            mailboxes: Vec::new(),
+            workers: 0,
+            seed_urls: Vec::new(),
+            noop_delay_millis: 0,
+            user_agent: "test".into(),
+            db: "test.db".into(),
+            reset: false,
+        });
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

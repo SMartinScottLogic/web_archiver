@@ -1,5 +1,6 @@
 use crate::extractor::DiscoveredLinks;
 use crate::frontier::db::frontier::{FrontierDb, FrontierDbTrait};
+use crate::settings::CONFIG;
 use anyhow::Context;
 use common::settings::Host;
 use common::types::{FetchTask, Priority};
@@ -17,9 +18,6 @@ pub struct FrontierManager {
     pub db: FrontierDb,
     tx_fetch: Sender<FetchTask>,
     rx_links: Receiver<DiscoveredLinks>,
-    noop_delay_millis: u64,
-    hosts: Vec<Host>,
-    user_agent: String,
     robots_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
     http_client: Client,
     queue: Vec<FetchTask>,
@@ -27,11 +25,8 @@ pub struct FrontierManager {
 
 impl FrontierManager {
     pub fn new(
-        user_agent: String,
         tx_fetch: Sender<FetchTask>,
         rx_links: Receiver<DiscoveredLinks>,
-        noop_delay_millis: u64,
-        hosts: Vec<Host>,
         db_conn: Arc<Mutex<Connection>>,
     ) -> Self {
         let db = FrontierDb::connect(db_conn.clone());
@@ -46,9 +41,6 @@ impl FrontierManager {
             db,
             tx_fetch,
             rx_links,
-            noop_delay_millis,
-            hosts,
-            user_agent,
             robots_cache: Arc::new(Mutex::new(HashMap::new())),
             http_client: Client::new(),
             queue: Default::default(),
@@ -56,10 +48,12 @@ impl FrontierManager {
     }
 
     /// Batch insert seed URLs into DB
-    pub fn add_seeds(&mut self, seed_urls: &[String]) {
+    pub fn add_seeds(&mut self) {
         let mut seeds = Vec::new();
-        for url in seed_urls {
+        for url in &CONFIG.get().unwrap().seed_urls {
             if let Some(canonical) = canonicalize_url(url) {
+                // TODO Use hosts to set this correctly
+                let use_playwright = false;
                 seeds.push(FetchTask {
                     article_id: 0, // Will be set by DB
                     url_id: 0,     // Will be set by DB
@@ -67,6 +61,7 @@ impl FrontierManager {
                     depth: 0,
                     priority: Priority::default(),
                     discovered_from: None,
+                    use_playwright,
                 });
             }
         }
@@ -95,13 +90,24 @@ impl FrontierManager {
         if self.tx_fetch.capacity() > 0
             && let Ok(Some(task)) = self.claim_next()
         {
-            if self.should_crawl(&task.url).await {
-                if (self.tx_fetch.send(task).await).is_err() {
-                    error!("Worker channel closed, frontier stopping");
-                    return;
+            match self.should_crawl(&task.url).await {
+                None => {
+                    if let Err(e) = self.db.mark_complete(task.url_id) {
+                        error!("Failed to mark complete for {}: {}", task.url, e);
+                    }
                 }
-            } else if let Err(e) = self.db.mark_complete(task.url_id) {
-                error!("Failed to mark complete for {}: {}", task.url, e);
+                Some(true) => {
+                    panic!(
+                        "Invalid task - use playwright should NEVER be seen in poll: {:?}",
+                        task
+                    );
+                }
+                Some(false) => {
+                    if (self.tx_fetch.send(task).await).is_err() {
+                        error!("Worker channel closed, frontier stopping");
+                        return;
+                    }
+                }
             }
         }
 
@@ -128,7 +134,10 @@ impl FrontierManager {
         }
 
         // --- 3. Sleep a bit to avoid busy loop ---
-        tokio::time::sleep(std::time::Duration::from_millis(self.noop_delay_millis)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            CONFIG.get().unwrap().noop_delay_millis,
+        ))
+        .await;
     }
 
     pub async fn run(mut self) {
@@ -140,7 +149,8 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            if self.should_crawl(&link.url).await {
+            let should_crawl = self.should_crawl(&link.url).await;
+            if let Some(use_playwright) = should_crawl {
                 batch.push(FetchTask {
                     article_id: 0, // Will be set by DB
                     url_id: 0,     // Will be set by DB
@@ -148,6 +158,7 @@ impl FrontierManager {
                     depth: msg.depth,
                     priority: link.priority,
                     discovered_from: Some(msg.parent_url_id),
+                    use_playwright,
                 });
             }
         }
@@ -159,37 +170,41 @@ impl FrontierManager {
         }
     }
 
-    async fn should_crawl(&mut self, link: &str) -> bool {
+    async fn should_crawl(&mut self, link: &str) -> Option<bool> {
         if !is_http_url(link) {
             trace!("Skipping non-http link: {}", link);
-            return false;
+            return None;
         }
         // Only allow links whose domain is in allowed_domains
         if let Some(domain) = extract_domain(link) {
             let matching_domains = self.get_matching_domains(&domain);
             if matching_domains.is_empty() {
                 trace!("Skipping link outside allowed domains: {}", link);
-                return false;
+                return None;
             } else {
                 debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
             }
+            let use_playwright = matching_domains.iter().any(|host| host.use_playwright);
 
             // Check robots.txt rules
             if !self.is_url_allowed(link, &domain).await {
                 debug!("Skipping link blocked by robots.txt: {}", link);
-                return false;
+                return None;
             } else {
                 trace!("Link permitted by robots.txt: {}", link);
             }
+            Some(use_playwright)
         } else {
             trace!("Skipping link with no domain: {}", link);
-            return false;
+            None
         }
-        true
     }
 
     fn get_matching_domains(&self, domain: &str) -> Vec<&Host> {
-        self.hosts
+        CONFIG
+            .get()
+            .unwrap()
+            .hosts
             .iter()
             .filter(|&host| host.domains.iter().any(|d| d == domain))
             .collect()
@@ -216,7 +231,7 @@ impl FrontierManager {
             },
         };
         // Check if URL is allowed by robots.txt rules
-        matcher.one_agent_allowed_by_robots(&r, &self.user_agent, url)
+        matcher.one_agent_allowed_by_robots(&r, &CONFIG.get().unwrap().user_agent, url)
         //robots_txt.is_allowed(url, "*")
     }
 
@@ -255,18 +270,18 @@ impl FrontierManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frontier::db::frontier::FrontierDb;
+    use crate::{frontier::db::frontier::FrontierDb, settings::test_setup::setup_test_config};
     use map_macro::hash_map;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
     use tracing_test::traced_test;
 
-    fn setup_manager(hosts: Vec<Host>) -> FrontierManager {
+    fn setup_manager() -> FrontierManager {
         let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
         // Create minimal schema for enqueue_batch
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
-                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
                     CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
                     CREATE UNIQUE INDEX idx_frontier_url_id ON frontier(url_id);
                 "#).unwrap();
@@ -277,9 +292,6 @@ mod tests {
             db: FrontierDb::connect(conn),
             tx_fetch: tokio::sync::mpsc::channel(1).0,
             rx_links: tokio::sync::mpsc::channel(1).1,
-            noop_delay_millis: 1,
-            hosts,
-            user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
             queue: Default::default(),
@@ -289,11 +301,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_process_discovered_links_skips_non_http() {
-        let mut mgr = setup_manager(vec![Host {
-            name: "Foo".to_string(),
-            domains: vec!["foo.com".to_string()],
-            pages: Default::default(),
-        }]);
+        let mut mgr = setup_manager();
         let msg = DiscoveredLinks {
             parent_url_id: 1,
             links: vec!["ftp://foo.com/file".into(), "mailto:bar@foo.com".into()],
@@ -311,11 +319,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_process_discovered_links_skips_disallowed_domain() {
-        let mut mgr = setup_manager(vec![Host {
-            name: "Foo".to_string(),
-            domains: vec!["foo.com".to_string()],
-            pages: Default::default(),
-        }]);
+        setup_test_config();
+
+        let mut mgr = setup_manager();
         let msg = DiscoveredLinks {
             parent_url_id: 1,
             links: vec!["http://bar.com/page".into()],
@@ -332,11 +338,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_process_discovered_links_skips_no_domain() {
-        let mut mgr = setup_manager(vec![Host {
-            name: "Foo".to_string(),
-            domains: vec!["foo.com".to_string()],
-            pages: Default::default(),
-        }]);
+        setup_test_config();
+
+        let mut mgr = setup_manager();
         let msg = DiscoveredLinks {
             parent_url_id: 1,
             links: vec!["http://bar.com/page".into()],
@@ -353,11 +357,8 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_process_discovered_links_enqueues_valid() {
-        let mut mgr = setup_manager(vec![Host {
-            name: "Foo".to_string(),
-            domains: vec!["foo.com".to_string()],
-            pages: Default::default(),
-        }]);
+        setup_test_config();
+        let mut mgr = setup_manager();
         let msg = DiscoveredLinks {
             parent_url_id: 1,
             links: vec!["http://foo.com/page".into()],
@@ -378,13 +379,15 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_run_dispatches_tasks() {
+        setup_test_config();
+
         let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
         // Create minimal schema for enqueue_batch and claim_next
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
-                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
                     CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
-                    INSERT INTO urls (id, url, article_id, domain, discovered_at) VALUES (1, 'http://example.com', 1, 'example.com', 1);
+                    INSERT INTO urls (id, url, article_id, domain, discovered_at, use_playwright) VALUES (1, 'http://example.com', 1, 'example.com', 1, 0);
                     INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
                 "#).unwrap();
 
@@ -395,13 +398,14 @@ mod tests {
             db: FrontierDb::connect(conn),
             tx_fetch,
             rx_links,
-            noop_delay_millis: 1,
-            hosts: vec![Host {
-                name: "Example".to_string(),
-                domains: vec!["example.com".to_string()],
-                pages: Default::default(),
-            }],
-            user_agent: "user_agent".to_string(),
+            // noop_delay_millis: 1,
+            // hosts: vec![Host {
+            //     name: "Example".to_string(),
+            //     domains: vec!["example.com".to_string()],
+            //     pages: Default::default(),
+            // use_playwright: false,
+            // }],
+            // user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![
                 "example.com".to_string() => None
             ])),
@@ -428,11 +432,13 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_run_processes_links() {
+        setup_test_config();
+
         // Create a separate connection for checking the database
         let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
-                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
                     CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
                     CREATE UNIQUE INDEX idx_frontier_url_id ON frontier(url_id);
                 "#).unwrap();
@@ -447,13 +453,14 @@ mod tests {
             db: FrontierDb::connect(conn.clone()),
             tx_fetch,
             rx_links,
-            noop_delay_millis: 1,
-            hosts: vec![Host {
-                name: "Example".to_string(),
-                domains: vec!["example.com".to_string()],
-                pages: Default::default(),
-            }],
-            user_agent: "user_agent".to_string(),
+            // noop_delay_millis: 1,
+            // hosts: vec![Host {
+            //     name: "Example".to_string(),
+            //     domains: vec!["example.com".to_string()],
+            //     pages: Default::default(),
+            // use_playwright: false,
+            // }],
+            // user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(cache)),
             http_client: Client::new(),
             queue: Default::default(),
@@ -489,12 +496,13 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_run_handles_channel_close() {
+        setup_test_config();
         let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
         // Create minimal schema for enqueue_batch and claim_next
         conn.lock().unwrap().execute_batch(r#"
-                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER);
+                    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
                     CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER);
-                    INSERT INTO urls (id, url, article_id, domain, discovered_at) VALUES (1, 'http://example.com', 1, 'example.com', 1);
+                    INSERT INTO urls (id, url, article_id, domain, discovered_at, use_playwright) VALUES (1, 'http://example.com', 1, 'example.com', 1, 0);
                     INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
                 "#).unwrap();
 
@@ -506,13 +514,14 @@ mod tests {
             db: FrontierDb::connect(conn),
             tx_fetch,
             rx_links,
-            noop_delay_millis: 1,
-            hosts: vec![Host {
-                name: "Example".to_string(),
-                domains: vec!["example.com".to_string()],
-                pages: Default::default(),
-            }],
-            user_agent: "user_agent".to_string(),
+            // noop_delay_millis: 1,
+            // hosts: vec![Host {
+            //     name: "Example".to_string(),
+            //     domains: vec!["example.com".to_string()],
+            //     pages: Default::default(),
+            // use_playwright: false,
+            // }],
+            // user_agent: "user_agent".to_string(),
             robots_cache: Arc::new(Mutex::new(hash_map![
                 "example.com".to_string() => None
             ])),
