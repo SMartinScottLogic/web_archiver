@@ -90,7 +90,7 @@ impl FrontierManager {
         if self.tx_fetch.capacity() > 0
             && let Ok(Some(task)) = self.claim_next()
         {
-            match self.should_crawl(&task.url).await {
+            match self.should_crawl(&task.url, task.depth).await {
                 None => {
                     if let Err(e) = self.db.mark_complete(task.url_id) {
                         error!("Failed to mark complete for {}: {}", task.url, e);
@@ -149,7 +149,7 @@ impl FrontierManager {
     pub async fn process_discovered_links(&mut self, msg: DiscoveredLinks) {
         let mut batch = Vec::new();
         for link in msg.links {
-            let should_crawl = self.should_crawl(&link.url).await;
+            let should_crawl = self.should_crawl(&link.url, msg.depth).await;
             if let Some(use_playwright) = should_crawl {
                 batch.push(FetchTask {
                     article_id: 0, // Will be set by DB
@@ -170,7 +170,7 @@ impl FrontierManager {
         }
     }
 
-    async fn should_crawl(&mut self, link: &str) -> Option<bool> {
+    async fn should_crawl(&mut self, link: &str, depth: u32) -> Option<bool> {
         if !is_http_url(link) {
             trace!("Skipping non-http link: {}", link);
             return None;
@@ -185,9 +185,21 @@ impl FrontierManager {
                 debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
             }
             let use_playwright = matching_domains.iter().any(|host| host.use_playwright);
+            let skip_robots = matching_domains.iter().any(|host| host.ignore_robots);
+
+            let permitted_depth = matching_domains.iter().any(|host| match host.max_depth {
+                None => true,
+                Some(d) if d >= depth => true,
+                _ => false,
+            });
+            if !permitted_depth {
+                return None;
+            }
 
             // Check robots.txt rules
-            if !self.is_url_allowed(link, &domain).await {
+            if skip_robots {
+                debug!("Skipping robots check: {}", link);
+            } else if !self.is_url_allowed(link, &domain).await {
                 debug!("Skipping link blocked by robots.txt: {}", link);
                 return None;
             } else {

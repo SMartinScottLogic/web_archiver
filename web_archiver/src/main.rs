@@ -4,6 +4,7 @@ use tracing::level_filters::LevelFilter;
 mod extractor;
 mod fetcher;
 mod frontier;
+mod json;
 mod mail;
 mod settings;
 mod system;

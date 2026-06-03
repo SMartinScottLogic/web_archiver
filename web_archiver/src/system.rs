@@ -1,3 +1,4 @@
+use crate::json::{JsonDb, JsonPoller};
 use common::Archiver;
 use common::types::{ArticleId, FetchTask};
 use rusqlite::Connection;
@@ -59,14 +60,16 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
         mut rx_fetch: mpsc::Receiver<FetchTask>,
         tx_fetched: mpsc::Sender<FetchedPage>,
         semaphore: Arc<Semaphore>,
+        db: Arc<DB>,
     ) {
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
+                let db = db.clone();
 
                 tokio::spawn(async move {
-                    worker_loop_single(task, tx).await;
+                    worker_loop_single(task, tx, db).await;
                     drop(permit);
                 });
             }
@@ -114,10 +117,35 @@ where
     DB: FrontierDbTrait,
 {
     pub fn spawn_email_poller_loop(poller: MailboxPoller<DB>) {
+        let refresh_period = CONFIG
+            .get()
+            .map(|config| config.email_refresh_period)
+            .unwrap_or(30);
+        let refresh_period = Duration::from_mins(refresh_period);
         tokio::spawn(async move {
             loop {
                 poller.poll_all();
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(refresh_period).await;
+            }
+        });
+    }
+}
+
+impl<A, DB> System<A, DB>
+where
+    A: Archiver + Send + Sync + 'static,
+    DB: FrontierDbTrait,
+{
+    pub fn spawn_json_poller_loop(poller: JsonPoller<DB>) {
+        let refresh_period = CONFIG
+            .get()
+            .map(|config| config.json.refresh_period)
+            .unwrap_or(30);
+        let refresh_period = Duration::from_mins(refresh_period);
+        tokio::spawn(async move {
+            loop {
+                poller.poll_all();
+                tokio::time::sleep(refresh_period).await;
             }
         });
     }
@@ -157,7 +185,8 @@ where
     // --- Spawn Worker Tasks ---
     // This task owns the receiver and spawns multiple async fetch tasks
     let sem = Arc::new(Semaphore::new(CONFIG.get().unwrap().workers));
-    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, sem);
+    let storage_db = DB::connect(db_arc.clone());
+    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, sem, Arc::new(storage_db));
 
     // --- Spawn Extractor Task ---
     System::<A, DB>::spawn_extractor(rx_fetched, tx_extracted, tx_links);
@@ -181,10 +210,16 @@ where
     let storage_db = DB::connect(db_arc.clone());
     let poller_db = EmailDb::connect(db_arc.clone());
     let _ = poller_db.reset()?;
-    let poller = MailboxPoller::new(Arc::new(storage_db), Arc::new(poller_db));
-    System::<A, DB>::spawn_email_poller_loop(poller);
+    let mailbox_poller = MailboxPoller::new(Arc::new(storage_db), Arc::new(poller_db));
+    System::<A, DB>::spawn_email_poller_loop(mailbox_poller);
 
-    // --- 8. Wait forever ---
+    let storage_db = DB::connect(db_arc.clone());
+    let poller_db = JsonDb::connect(db_arc.clone());
+    let _ = poller_db.reset()?;
+    let json_poller = JsonPoller::new(Arc::new(storage_db), Arc::new(poller_db));
+    System::<A, DB>::spawn_json_poller_loop(json_poller);
+
+    // --- Wait forever ---
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for Ctrl-C");
@@ -214,7 +249,13 @@ mod tests {
 
         let semaphore = Arc::new(Semaphore::new(1));
 
-        System::<MockArchiver, MockFrontierDbTrait>::spawn_workers(rx_fetch, tx_fetched, semaphore);
+        let db = MockFrontierDbTrait::new();
+        System::<MockArchiver, MockFrontierDbTrait>::spawn_workers(
+            rx_fetch,
+            tx_fetched,
+            semaphore,
+            Arc::new(db),
+        );
 
         // Send a dummy task
         let task = FetchTask {

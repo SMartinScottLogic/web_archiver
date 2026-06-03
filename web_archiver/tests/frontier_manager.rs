@@ -54,12 +54,16 @@ fn setup_test_config() {
                 domains: vec!["foo.com".to_string()],
                 pages: Default::default(),
                 use_playwright: false,
+                ignore_robots: false,
+                max_depth: None,
             },
             Host {
                 name: "Bar".to_string(),
                 domains: vec!["bar.com".to_string()],
                 pages: Default::default(),
                 use_playwright: false,
+                ignore_robots: false,
+                max_depth: None,
             },
         ],
         mailboxes: Vec::new(),
@@ -69,6 +73,7 @@ fn setup_test_config() {
         user_agent: "test".into(),
         db: "test.db".into(),
         reset: false,
+        ..Default::default()
     });
 }
 

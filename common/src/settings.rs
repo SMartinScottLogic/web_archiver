@@ -10,6 +10,10 @@ pub struct Host {
     pub pages: PageType,
     #[serde(default)]
     pub use_playwright: bool,
+    #[serde(default)]
+    pub ignore_robots: bool,
+    #[serde(alias = "max-depth")]
+    pub max_depth: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]

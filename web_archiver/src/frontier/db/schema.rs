@@ -7,6 +7,7 @@ pub fn settings(conn: &Connection) -> Result<()> {
     PRAGMA synchronous=NORMAL;
     PRAGMA temp_store=MEMORY;
     PRAGMA cache_size=100000;
+    PRAGMA busy_timeout=5000;
     "#,
     )
 }
@@ -63,6 +64,13 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             id INTEGER PRIMARY KEY,
             filename TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+        );
+
+        CREATE TABLE IF NOT EXISTS json_queue (
+            id INTEGER PRIMARY KEY,
+            path TEXT,
+            depth INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending'
         );
 

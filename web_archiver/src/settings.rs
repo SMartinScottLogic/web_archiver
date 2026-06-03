@@ -24,8 +24,24 @@ pub struct Config {
     pub user_agent: String,
     pub db: String,
     pub reset: bool,
+    pub email_refresh_period: u64,
+    pub json: JsonConfig,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JsonConfig {
+    pub refresh_period: u64,
+    pub exclude: Vec<String>,
+}
+
+impl Default for JsonConfig {
+    fn default() -> Self {
+        Self {
+            refresh_period: 30,
+            exclude: Default::default(),
+        }
+    }
+}
 /// Command line arguments
 #[derive(Parser, Debug, Serialize)]
 #[command(rename_all = "kebab-case")]
@@ -116,6 +132,8 @@ impl Default for Config {
             user_agent: "Week1Crawler/0.1".to_string(),
             db: "crawler.db".to_string(),
             reset: false,
+            email_refresh_period: 30,
+            json: JsonConfig::default(),
         }
     }
 }
@@ -160,12 +178,16 @@ pub mod test_setup {
                     domains: vec!["foo.com".to_string()],
                     pages: Default::default(),
                     use_playwright: false,
+                    ignore_robots: false,
+                    max_depth: None,
                 },
                 Host {
                     name: "Example".to_string(),
                     domains: vec!["example.com".to_string()],
                     pages: Default::default(),
                     use_playwright: false,
+                    ignore_robots: false,
+                    max_depth: None,
                 },
             ],
             mailboxes: Vec::new(),
@@ -175,6 +197,7 @@ pub mod test_setup {
             user_agent: "test".into(),
             db: "test.db".into(),
             reset: false,
+            ..Default::default()
         });
     }
 }

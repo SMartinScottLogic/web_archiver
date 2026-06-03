@@ -8,6 +8,7 @@ members = [
     "web_archiver",
     "vector_indexer",
     "mailbox",
+    "video_duration_sort",
 ]
 resolver = "3"
 
