@@ -1,0 +1,25 @@
+[package]
+name = "video_duration_sort"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true}
+
+infer = "0.15"
+walkdir = { workspace = true}
+clap = { workspace = true, features = ["derive"] }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+image = "0.25"
+image_hasher = "2"
+
+rayon = "1.10"
+tempfile = { workspace = true }
+
+directories = "5"
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

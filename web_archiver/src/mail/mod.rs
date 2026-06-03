@@ -58,7 +58,7 @@ impl EmailDb {
             "UPDATE emails SET status = ?2 WHERE id = ?1",
             params![id, status],
         )
-        .inspect_err(|e| error!(?e, "set email to 'in progress' failed"))?;
+        .inspect_err(|e| error!(?e, "set email status failed"))?;
         tx.commit()?;
 
         Ok(())
@@ -73,7 +73,13 @@ impl EmailDb {
                 [],
                 |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?)),
             )
-            .inspect_err(|e| error!(?e, "next email failed"))?;
+            .inspect_err(|e| {
+                if *e == rusqlite::Error::QueryReturnedNoRows {
+                    warn!(?e, "next email failed")
+                } else {
+                    error!(?e, "next email failed")
+                }
+            })?;
         tx.execute(
             "UPDATE emails SET status = 'in_progress' WHERE id = ?1",
             params![id],
@@ -233,8 +239,9 @@ where
     for link in document
         .select(&selector)
         .filter_map(|element| element.value().attr("href"))
-        .flat_map(|href| url::Url::parse(href)
-            .inspect_err(|e| error!(?href, ?e, "Failed to parse")))
+        .flat_map(|href| {
+            url::Url::parse(href).inspect_err(|e| error!(?href, ?e, "Failed to parse"))
+        })
     {
         f(link);
     }

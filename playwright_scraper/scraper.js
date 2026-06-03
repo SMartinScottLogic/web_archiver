@@ -28,7 +28,9 @@ const db = new Database(QUEUE_DB);
 //
 db.exec(`
 CREATE TABLE IF NOT EXISTS json_queue (
-  path TEXT PRIMARY KEY,
+        id INTEGER PRIMARY KEY,
+  path TEXT,
+  depth INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'
 );
 `);
@@ -73,8 +75,8 @@ const allJobs = db.prepare(`
   AND status = 'pending'
 `).all();
 
-console.log("Current jobs:");
-console.table(allJobs);
+//console.log("Current jobs:");
+//console.table(allJobs);
 return allJobs;
 }
 
@@ -96,7 +98,7 @@ function safeFilename(url) {
     .slice(0, 150);
 }
 
-async function saveResponse(response) {
+async function saveResponse(response, depth) {
   try {
     const url = response.url();
     const headers = response.headers();
@@ -134,11 +136,11 @@ async function saveResponse(response) {
 
     // Insert into DB
     const insertJob = db.prepare(`
-    INSERT OR IGNORE INTO json_queue (path)
-    VALUES (?)
-`);
+      INSERT OR IGNORE INTO json_queue (path, depth)
+      VALUES (?, ?)
+    `);
 
-insertJob.run(filePath);
+    insertJob.run(filePath, depth);
 
     console.log("Saved:", filename);
   } catch (err) {
@@ -166,7 +168,7 @@ async function main() {
   console.log(`Loaded ${queue.length} URLs from queue.\n`);
 
   var count = 0;
-  for (const {url, url_id} of queue) {
+  for (const {url, url_id, depth} of queue) {
     count += 1;
     console.log("Visiting: " + url + " (" + count + "/" + queue.length + ")");
 
@@ -188,7 +190,7 @@ async function main() {
     }
     // Attach listener per page
     page.on("response", async (response) => {
-      await saveResponse(response);
+      await saveResponse(response, depth);
       
       const status = response.status();
       const url = response.url();
@@ -213,7 +215,7 @@ async function main() {
       record(page.url(), "final");
 
       // Allow background GraphQL/API calls to fire
-      await page.waitForTimeout(8000);
+      await page.waitForTimeout(4000);
     } catch (err) {
       console.error("Failed:", url, err.message);
     }
