@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = { workspace = true}
 
-infer = "0.15"
+infer = "0.19"
 walkdir = { workspace = true}
 clap = { workspace = true, features = ["derive"] }
 
