@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 imap = "2.4.1"
 native-tls = "0.2"
-mailparse = "0.15"
+mailparse = "0.16"
 
 clap = { workspace = true }
 #csv = { workspace = true }
