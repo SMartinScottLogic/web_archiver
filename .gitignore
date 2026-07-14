@@ -4,6 +4,7 @@
 # App specific
 /weeklore_reports
 /archive
+/archive_refetch
 /config.yaml
 /archive_index.csv
 *.db-*
@@ -13,3 +14,5 @@
 /cobertura.xml
 /cheese*
 *.jsonl
+/chrome-profile/
+/test/

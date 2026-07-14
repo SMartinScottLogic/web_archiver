@@ -1,21 +1,8 @@
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::{path::Path, process::{Command, Stdio}};
 
 use tracing::debug;
 
-#[allow(dead_code)]
-pub fn is_image(mime: &str) -> bool {
-    mime.starts_with("image/")
-}
-
-#[allow(dead_code)]
-pub fn is_video(mime: &str) -> bool {
-    mime.starts_with("video/")
-}
-
-pub fn infer_mime(path: &Path) -> Option<String> {
-    infer::get_from_path(path).ok().flatten().map(|k| k.mime_type().to_string())
-}
+pub mod fingerprint;
 
 pub fn ffprobe_duration(path: &Path) -> Option<f64> {
     debug!(?path, "ffprobe duration");

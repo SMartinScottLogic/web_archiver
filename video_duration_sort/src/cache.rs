@@ -9,16 +9,15 @@ pub struct CachedVideo {
     pub size: u64,
     pub mtime: u64,
     pub duration: f64,
-    pub hash25: String,  // hex-encoded
-    pub hash50: String,  // hex-encoded
-    pub hash75: String,  // hex-encoded
+    pub hash25: String, // hex-encoded
+    pub hash50: String, // hex-encoded
+    pub hash75: String, // hex-encoded
 }
 
 pub type Cache = HashMap<PathBuf, CachedVideo>;
 
 fn cache_path() -> PathBuf {
-    let proj = ProjectDirs::from("com", "video-sorter", "video-sorter")
-        .expect("no project dir");
+    let proj = ProjectDirs::from("com", "video-sorter", "video-sorter").expect("no project dir");
     proj.cache_dir().join("cache.json")
 }
 

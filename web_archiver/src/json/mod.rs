@@ -4,11 +4,13 @@ use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::{
     collections::HashSet,
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tracing::{debug, error, info, warn};
 use url::Url;
+use flate2::read::GzDecoder;
 
 use crate::{frontier::db::frontier::FrontierDbTrait, settings::CONFIG};
 
@@ -44,9 +46,9 @@ where
     }
 
     fn process(&self, path: &Path, depth: u32) -> Result<()> {
-        let file = std::fs::File::open(path)?;
-        let content: Value = serde_json::from_reader(file)?;
-
+        let reader = open_json_reader(path)?;
+        let content: Value = serde_json::from_reader(reader)?;
+        
         let mut links = HashSet::new();
         Self::get_links(&mut links, &content);
 
@@ -192,6 +194,20 @@ impl JsonDb {
 
         // TODO Also return row id
         Ok((PathBuf::from(filename), depth))
+    }
+}
+
+fn open_json_reader(path: &Path) -> Result<Box<dyn Read>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut magic = [0u8; 2];
+    let bytes_read = reader.read(&mut magic)?;
+    reader.seek(SeekFrom::Start(0))?;
+
+    if bytes_read == 2 && magic == [0x1f, 0x8b] {
+        Ok(Box::new(GzDecoder::new(reader)))
+    } else {
+        Ok(Box::new(reader))
     }
 }
 
