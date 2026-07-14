@@ -1,4 +1,4 @@
-use crate::json::{JsonDb, JsonPoller};
+use crate::{json::{JsonDb, JsonPoller}, settings::DEFAULT_MIN_FREE_SPACE};
 use common::Archiver;
 use common::types::{ArticleId, FetchTask};
 use rusqlite::Connection;
@@ -64,6 +64,7 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
     ) {
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
+
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
                 let db = db.clone();
@@ -179,6 +180,12 @@ where
         let num_reset = frontier_manager.reset_all()?;
         info!("Reset all fetch tasks: {}", num_reset);
     }
+    let min_free_space = CONFIG
+        .get()
+        .map(|config| config.min_free_space)
+        .unwrap_or(DEFAULT_MIN_FREE_SPACE);
+    
+
     frontier_manager.add_seeds();
     System::<A, DB>::spawn_frontier(frontier_manager);
 

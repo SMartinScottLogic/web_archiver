@@ -1,16 +1,16 @@
+mod bktree;
 mod cache;
-mod fingerprint;
 mod media;
-mod planner;
 mod mover;
+mod planner;
 
 use clap::Parser;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use std::path::{PathBuf, absolute};
 use tracing::info;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "video-sorter")]
 struct Args {
     /// Paths to scan (positional, can be multiple)
@@ -25,6 +25,10 @@ struct Args {
     #[arg(long)]
     rescan_temp1: bool,
 
+    /// Read-only (scan and plan only)
+    #[arg(long)]
+    read_only: bool,
+
     /// Duration precision (decimal places)
     #[arg(long, default_value_t = 1)]
     duration_precision: usize,
@@ -32,6 +36,10 @@ struct Args {
     /// Frame hashing threshold (Hamming distance)
     #[arg(long, default_value_t = 8)]
     hash_threshold: u32,
+
+    /// Minimum image pixels to retain
+    #[arg(long, default_value_t = 0)]
+    min_image_pixels: u32,
 }
 
 /// Initialize logging ---
@@ -45,13 +53,13 @@ fn setup_logging() {
         .with_env_filter(env_filter)
         .with_thread_ids(false)
         .with_thread_names(false)
-        .with_span_events(FmtSpan::NONE)
+        .with_span_events(FmtSpan::ACTIVE)
         .init();
 }
 
 fn main() -> anyhow::Result<()> {
     setup_logging();
-    
+
     let args = Args::parse();
 
     info!(?args, "Starting video-sorter");
@@ -59,7 +67,7 @@ fn main() -> anyhow::Result<()> {
     let mut cache = cache::load_cache()?;
     cache::prune_missing(&mut cache);
 
-    let mut planner = planner::Planner::new(cache, args.hash_threshold, args.duration_precision);
+    let mut planner = planner::Planner::new(cache, args.clone());
 
     for root in &args.paths {
         let abs_path = absolute(root)?;
@@ -71,14 +79,30 @@ fn main() -> anyhow::Result<()> {
     let (plan, cache) = planner.finalize();
 
     let total = plan.len();
-    let images = plan.iter().filter(|op| matches!(op, mover::MoveOp::Image(_))).count();
-    let temp1 = plan.iter().filter(|op| matches!(op, mover::MoveOp::Temp1(_))).count();
-    let clusters = plan.iter().filter(|op| matches!(op, mover::MoveOp::Cluster(_, _))).count();
+    let images = plan
+        .iter()
+        .filter(|op| matches!(op, mover::Operation::Image(_)))
+        .count();
+    let singleton = plan
+        .iter()
+        .filter(|op| matches!(op, mover::Operation::Singleton(_)))
+        .count();
+    let clusters = plan
+        .iter()
+        .filter(|op| matches!(op, mover::Operation::Cluster { target: _, files: _ }))
+        .count();
+    let delete = plan
+        .iter()
+        .filter(|op| matches!(op, mover::Operation::Delete(_)))
+        .count();
 
-    info!(total, images, temp1, clusters, "Plan finalized");
+    info!(total, images, singleton, clusters, delete, "Plan finalized");
 
-    mover::execute(plan)?;
-
+    if !args.read_only {
+        mover::execute(plan)?;
+    } else {
+        info!(?plan, "plan");
+    }
     cache::save_cache(&cache)?;
 
     Ok(())

@@ -2,20 +2,22 @@ use std::fs;
 use std::path::{Path, PathBuf, absolute};
 use tracing::info;
 
-pub enum MoveOp {
-    Cluster(String, Vec<PathBuf>),
-    Temp1(PathBuf),
+#[derive(Debug)]
+pub enum Operation {
+    Cluster { target: String, files: Vec<PathBuf> },
+    Singleton(PathBuf),
     Image(PathBuf),
+    Delete(PathBuf),
 }
 
-pub fn execute(ops: Vec<MoveOp>) -> anyhow::Result<()> {
+pub fn execute(ops: Vec<Operation>) -> anyhow::Result<()> {
     info!(count = ops.len(), "Mover: executing move operations");
 
     for (idx, op) in ops.into_iter().enumerate() {
         match op {
-            MoveOp::Image(p) => move_file(&p, Path::new("./image"))?,
-            MoveOp::Temp1(p) => move_file(&p, Path::new("./temp1"))?,
-            MoveOp::Cluster(dir, files) => {
+            Operation::Image(p) => move_file(&p, Path::new("./image"))?,
+            Operation::Singleton(p) => move_file(&p, Path::new("./temp1"))?,
+            Operation::Cluster { target: dir, files }=> {
                 let base = PathBuf::from(dir);
 
                 for f in files {
@@ -23,9 +25,15 @@ pub fn execute(ops: Vec<MoveOp>) -> anyhow::Result<()> {
                     move_file(&f, &base)?;
                 }
             }
+            Operation::Delete(p) => delete_file(&p)?,
         }
     }
 
+    Ok(())
+}
+
+fn delete_file(file: &Path) -> anyhow::Result<()> {
+    info!(file=%file.display(), "Mover: preparing to delete file");
     Ok(())
 }
 

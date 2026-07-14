@@ -30,6 +30,9 @@ native-tls = "0.2"
 uuid = { version = "1", features = ["v4"] }
 mailparse = "0.16"
 email = "0.0.21"
+flate2 = {workspace = true}
+
+parse-size = {workspace = true}
 
 [dependencies.common]
 path = "../common"

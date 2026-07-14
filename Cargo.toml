@@ -55,4 +55,5 @@ zstd = "0.13"
 #rust-bert = "0.23.0"
 itertools = "0.15.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.
 wiremock = "0.6.5"                     # HTTP mocking to test Rust applications.
-
+flate2 = "1"
+parse-size = "1.1.0"

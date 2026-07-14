@@ -5,6 +5,25 @@ const Database = require("better-sqlite3");
 
 const args = process.argv.slice(2);
 
+// Monkey-patch console methods to include timestamps
+const methods = [
+  'log',
+  'info',
+  'warn',
+  'error',
+  'debug',
+  'trace'
+];
+
+for (const method of methods) {
+  const original = console[method];
+
+  console[method] = (...args) => {
+    const timestamp = new Date().toISOString();
+    original(`[${timestamp}]`, ...args);
+  };
+}
+
 if (args.length != 3) {
   console.log(`
     Usage:
@@ -73,6 +92,7 @@ const allJobs = db.prepare(`
   FROM urls u JOIN frontier f ON u.id = f.url_id 
   WHERE u.use_playwright=1 
   AND status = 'pending'
+  LIMIT 25
 `).all();
 
 //console.log("Current jobs:");
@@ -232,7 +252,15 @@ async function main() {
   await browser.close();
   
   console.log("Disconnected from Chrome.");
-  process.exit(0);
 }
 
-main().catch(console.error);
+async function runLoop() {
+  while (true) {
+    await main().catch(console.error);
+    // Sleep for 5 minutes
+    console.info("Sleeping for 5 minutes before next run...");
+    await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000));
+  }
+}
+
+runLoop();

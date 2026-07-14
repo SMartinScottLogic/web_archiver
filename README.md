@@ -142,6 +142,12 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 ---
 
+## Chrome for scraper
+
+google-chrome --remote-debugging-port=9222 --user-data-dir=./chrome-profile
+
+---
+
 ## License
 
 MIT

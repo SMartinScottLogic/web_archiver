@@ -11,6 +11,8 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
+pub const DEFAULT_MIN_FREE_SPACE: u64 = 5 * 1024 * 1024 * 1024; // 5 GiB
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Config {
@@ -26,6 +28,7 @@ pub struct Config {
     pub reset: bool,
     pub email_refresh_period: u64,
     pub json: JsonConfig,
+    pub min_free_space: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -85,6 +88,17 @@ struct Args {
     #[arg(short, long, help_heading = "Archive")]
     #[serde(skip_serializing_if = "Option::is_none")]
     db: Option<String>,
+
+    /// Minimum free disk space
+    #[arg(short, long, help_heading = "Archive", value_parser = parse_human_size)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_free_space: Option<u64>,
+}
+
+#[allow(dead_code)]
+pub fn parse_human_size(src: &str) -> Result<u64, String> {
+    parse_size::parse_size(src)
+    .map_err(|e| format!("Invalid size {}: {:?}", src, e))
 }
 
 #[allow(dead_code)]
@@ -134,6 +148,7 @@ impl Default for Config {
             reset: false,
             email_refresh_period: 30,
             json: JsonConfig::default(),
+            min_free_space: DEFAULT_MIN_FREE_SPACE,
         }
     }
 }
