@@ -24,6 +24,7 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 figment = {version = "0.10.19", features = ["yaml"]}
 mockall = { workspace = true }
+nix = { workspace = true }
 
 imap = "2.4.1"
 native-tls = "0.2"

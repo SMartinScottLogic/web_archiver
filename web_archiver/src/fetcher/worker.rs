@@ -31,7 +31,7 @@ where
     let url = task.url.clone();
     debug!("Fetching page {} ...", &url);
     match fetch_page(&client, &url).await {
-        Ok((Some((major, minor)), _, body)) if major == "text" => {
+        Ok((Some((major, _minor)), _, body)) if major == "text" => {
             let fetched = FetchedPage {
                 task,
                 status_code: 200,

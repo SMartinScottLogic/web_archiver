@@ -17,11 +17,7 @@ impl<T> BkTree<T> {
         Self { root: None }
     }
 
-    pub fn insert(
-        &mut self,
-        fp: Fingerprint,
-        value: T,
-    ) {
+    pub fn insert(&mut self, fp: Fingerprint, value: T) {
         match &mut self.root {
             None => {
                 self.root = Some(Box::new(Node {
@@ -37,12 +33,7 @@ impl<T> BkTree<T> {
         }
     }
 
-    pub fn search<'a>(
-        &'a self,
-        target: &Fingerprint,
-        max_dist: u32,
-        results: &mut Vec<&'a T>,
-    ) {
+    pub fn search<'a>(&'a self, target: &Fingerprint, max_dist: u32, results: &mut Vec<&'a T>) {
         if let Some(root) = &self.root {
             root.search(target, max_dist, results);
         }
@@ -50,11 +41,7 @@ impl<T> BkTree<T> {
 }
 
 impl<T> Node<T> {
-    fn insert(
-        &mut self,
-        fp: Fingerprint,
-        value: T,
-    ) {
+    fn insert(&mut self, fp: Fingerprint, value: T) {
         let d = self.fp.distance(&fp);
 
         for (edge, child) in &mut self.children {
@@ -74,12 +61,7 @@ impl<T> Node<T> {
         ));
     }
 
-    fn search<'a>(
-        &'a self,
-        target: &Fingerprint,
-        max_dist: u32,
-        results: &mut Vec<&'a T>,
-    ) {
+    fn search<'a>(&'a self, target: &Fingerprint, max_dist: u32, results: &mut Vec<&'a T>) {
         let d = self.fp.distance(target);
 
         if d <= max_dist {
@@ -91,11 +73,7 @@ impl<T> Node<T> {
 
         for (edge, child) in &self.children {
             if *edge >= lower && *edge <= upper {
-                child.search(
-                    target,
-                    max_dist,
-                    results,
-                );
+                child.search(target, max_dist, results);
             }
         }
     }

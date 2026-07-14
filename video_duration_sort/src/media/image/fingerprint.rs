@@ -1,10 +1,5 @@
 use anyhow::Result;
-use image::{
-    imageops::FilterType,
-    DynamicImage,
-    GrayImage,
-    Luma,
-};
+use image::{DynamicImage, GrayImage, Luma, imageops::FilterType};
 
 const LARGE_SIZE: u32 = 160;
 const FINAL_SIZE: u32 = 16;
@@ -40,11 +35,7 @@ impl Fingerprint {
 
 pub fn generate(img: DynamicImage) -> Result<Fingerprint> {
     let img = img
-        .resize_exact(
-            LARGE_SIZE,
-            LARGE_SIZE,
-            FilterType::Triangle,
-        )
+        .resize_exact(LARGE_SIZE, LARGE_SIZE, FilterType::Triangle)
         .grayscale();
 
     let gray = img.to_luma8();
@@ -53,12 +44,8 @@ pub fn generate(img: DynamicImage) -> Result<Fingerprint> {
 
     let normalized = normalize(&blurred);
 
-    let reduced = image::imageops::resize(
-        &normalized,
-        FINAL_SIZE,
-        FINAL_SIZE,
-        FilterType::Triangle,
-    );
+    let reduced =
+        image::imageops::resize(&normalized, FINAL_SIZE, FINAL_SIZE, FilterType::Triangle);
 
     Ok(threshold_bitmap(&reduced))
 }
@@ -87,10 +74,7 @@ fn normalize(img: &GrayImage) -> GrayImage {
 
     for pixel in out.pixels_mut() {
         let v = pixel[0];
-        let nv =
-            ((v - min) as f32 * scale)
-                .round()
-                .clamp(0.0, 255.0);
+        let nv = ((v - min) as f32 * scale).round().clamp(0.0, 255.0);
 
         *pixel = Luma([nv as u8]);
     }
@@ -99,11 +83,7 @@ fn normalize(img: &GrayImage) -> GrayImage {
 }
 
 fn threshold_bitmap(img: &GrayImage) -> Fingerprint {
-    let mean =
-        img.pixels()
-            .map(|p| p[0] as u64)
-            .sum::<u64>() as f32
-            / 256.0;
+    let mean = img.pixels().map(|p| p[0] as u64).sum::<u64>() as f32 / 256.0;
 
     let mut bits = [0u64; 4];
 

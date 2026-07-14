@@ -19,13 +19,13 @@ pub trait ToHex {
 /// Convert an ImageHash to a proper hex string for storage and folder names
 impl ToHex for ImageHash {
     fn to_hex(&self) -> String {
-    // Use a hash of the debug representation to create a stable hex string
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    format!("{:?}", self).hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
-}
+        // Use a hash of the debug representation to create a stable hex string
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        format!("{:?}", self).hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
 }
 
 pub fn fingerprint_video(path: &Path, duration: f64) -> Option<VideoFingerprint> {

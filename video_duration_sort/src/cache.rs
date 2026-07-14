@@ -2,7 +2,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedVideo {
@@ -19,15 +19,6 @@ pub type Cache = HashMap<PathBuf, CachedVideo>;
 fn cache_path() -> PathBuf {
     let proj = ProjectDirs::from("com", "video-sorter", "video-sorter").expect("no project dir");
     proj.cache_dir().join("cache.json")
-}
-
-/// Convert a path to absolute path for cache key consistency
-fn to_absolute_path2(path: &Path) -> anyhow::Result<PathBuf> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
 }
 
 pub fn load_cache() -> anyhow::Result<Cache> {
@@ -61,17 +52,16 @@ pub fn get_cache_if_valid(cache: &Cache, path: &PathBuf) -> Option<CachedVideo> 
     assert!(path.is_absolute());
     //let abs_path = to_absolute_path(path).ok()?;
 
-    if let Ok(metadata) = fs::metadata(&path) {
-        if let Some(cached) = cache.get(&path.to_path_buf()) {
-            if let Ok(mtime) = metadata.modified() {
-                let current_mtime = mtime
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                if cached.size == metadata.len() && cached.mtime == current_mtime {
-                    return Some(cached.clone());
-                }
-            }
+    if let Ok(metadata) = fs::metadata(path)
+        && let Some(cached) = cache.get(&path.to_path_buf())
+        && let Ok(mtime) = metadata.modified()
+    {
+        let current_mtime = mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if cached.size == metadata.len() && cached.mtime == current_mtime {
+            return Some(cached.clone());
         }
     }
     None
