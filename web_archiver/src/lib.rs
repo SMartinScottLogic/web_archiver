@@ -1,3 +1,4 @@
+pub mod disk;
 pub mod extractor;
 pub mod fetcher;
 pub mod frontier;

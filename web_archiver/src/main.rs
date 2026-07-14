@@ -1,6 +1,7 @@
 use common::DefaultArchiver;
 use tracing::level_filters::LevelFilter;
 
+mod disk;
 mod extractor;
 mod fetcher;
 mod frontier;

@@ -89,7 +89,15 @@ fn main() -> anyhow::Result<()> {
         .count();
     let clusters = plan
         .iter()
-        .filter(|op| matches!(op, mover::Operation::Cluster { target: _, files: _ }))
+        .filter(|op| {
+            matches!(
+                op,
+                mover::Operation::Cluster {
+                    target: _,
+                    files: _
+                }
+            )
+        })
         .count();
     let delete = plan
         .iter()

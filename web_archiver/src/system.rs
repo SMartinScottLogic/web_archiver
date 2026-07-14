@@ -1,4 +1,7 @@
-use crate::{json::{JsonDb, JsonPoller}, settings::DEFAULT_MIN_FREE_SPACE};
+use crate::{
+    disk,
+    json::{JsonDb, JsonPoller},
+};
 use common::Archiver;
 use common::types::{ArticleId, FetchTask};
 use rusqlite::Connection;
@@ -7,7 +10,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tokio::time::sleep;
+use tracing::{debug, info, warn};
 
 use crate::extractor::parser::extractor_loop;
 use crate::fetcher::worker::worker_loop_single;
@@ -64,6 +68,11 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
     ) {
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
+                // Check if disk space is low; pause task spawning if so
+                while let Ok(true) = disk::should_pause_tasks() {
+                    warn!("Disk space low; pausing worker spawning");
+                    sleep(Duration::from_secs(1)).await;
+                }
 
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
@@ -125,6 +134,13 @@ where
         let refresh_period = Duration::from_mins(refresh_period);
         tokio::spawn(async move {
             loop {
+                // Check if disk space is low; pause email polling if so
+                if let Ok(true) = disk::should_pause_tasks() {
+                    warn!("Disk space low; pausing email polling");
+                    sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+
                 poller.poll_all();
                 tokio::time::sleep(refresh_period).await;
             }
@@ -145,6 +161,13 @@ where
         let refresh_period = Duration::from_mins(refresh_period);
         tokio::spawn(async move {
             loop {
+                // Check if disk space is low; pause JSON polling if so
+                if let Ok(true) = disk::should_pause_tasks() {
+                    warn!("Disk space low; pausing JSON polling");
+                    sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+
                 poller.poll_all();
                 tokio::time::sleep(refresh_period).await;
             }
@@ -180,11 +203,6 @@ where
         let num_reset = frontier_manager.reset_all()?;
         info!("Reset all fetch tasks: {}", num_reset);
     }
-    let min_free_space = CONFIG
-        .get()
-        .map(|config| config.min_free_space)
-        .unwrap_or(DEFAULT_MIN_FREE_SPACE);
-    
 
     frontier_manager.add_seeds();
     System::<A, DB>::spawn_frontier(frontier_manager);

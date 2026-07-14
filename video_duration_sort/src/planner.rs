@@ -1,7 +1,7 @@
 use crate::Args;
 use crate::cache::{Cache, get_cache_if_valid, update_cache_fingerprint};
 use crate::media::video::fingerprint::{ToHex, distance, fingerprint_video};
-use crate::media::{video::ffprobe_duration, infer_mime, is_image};
+use crate::media::{infer_mime, is_image, video::ffprobe_duration};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -221,71 +221,75 @@ impl Planner {
     }
 }
 
-#[instrument(skip(files, config, ops))]
-fn finalize_images(files: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mover::Operation>) {
-        let mut uf = UnionFind::new(files.len());
+#[instrument(skip(files, _config, _ops))]
+fn finalize_images(files: Vec<PathBuf>, _config: &Args, _ops: &mut [crate::mover::Operation]) {
+    let mut uf = UnionFind::new(files.len());
 
     debug!(?files, "images");
-    let images = files.par_iter()
-    .filter_map(|path| {
-        let image = image::ImageReader::open(path)
-        .inspect_err(|e| error!(?e, ?path, "failed to open"))
-        .ok()?
-        .with_guessed_format()
-        .inspect_err(|e| error!(?e, ?path, "failed to deduce format"))
-        .ok()?
-        .decode()
-        .inspect_err(|e| error!(?e, ?path, "failed to decode"))
-        .ok()?;
-        let fp = crate::media::image::fingerprint::generate(image)
-        .inspect_err(|e| error!(?e, ?path, "failed to fingerprint"))
-        .ok()?;
-        Some( crate::media::image::fingerprint::ImageRecord {
-            path: path.clone(),
-            width: 0,
-            height: 0,
-            fingerprint: fp,
+    let images = files
+        .par_iter()
+        .filter_map(|path| {
+            let image = image::ImageReader::open(path)
+                .inspect_err(|e| error!(?e, ?path, "failed to open"))
+                .ok()?
+                .with_guessed_format()
+                .inspect_err(|e| error!(?e, ?path, "failed to deduce format"))
+                .ok()?
+                .decode()
+                .inspect_err(|e| error!(?e, ?path, "failed to decode"))
+                .ok()?;
+            let fp = crate::media::image::fingerprint::generate(image)
+                .inspect_err(|e| error!(?e, ?path, "failed to fingerprint"))
+                .ok()?;
+            Some(crate::media::image::fingerprint::ImageRecord {
+                path: path.clone(),
+                width: 0,
+                height: 0,
+                fingerprint: fp,
+            })
         })
-    }).collect::<Vec<_>>();
+        .collect::<Vec<_>>();
     let mut bktree = crate::bktree::BkTree::new();
     for (id, image) in images.iter().enumerate() {
         bktree.insert(image.fingerprint, id);
     }
     let max_distance = 15;
     for (id, image) in images.iter().enumerate() {
-                let mut matches = Vec::new();
+        let mut matches = Vec::new();
 
         bktree.search(&image.fingerprint, max_distance, &mut matches);
         debug!(?image, ?matches, "mktree match");
-for &other_idx in matches {
-    if id == other_idx {
-        continue;
-    }
+        for &other_idx in matches {
+            if id == other_idx {
+                continue;
+            }
 
-    let d = images[id]
-        .fingerprint
-        .distance(&images[other_idx].fingerprint);
+            let d = images[id]
+                .fingerprint
+                .distance(&images[other_idx].fingerprint);
 
-    if d <= max_distance {
-        uf.union(id, other_idx);
+            if d <= max_distance {
+                uf.union(id, other_idx);
+            }
+        }
     }
-}    }
     debug!(?uf, "union find");
-        let mut groups: HashMap<usize, Vec<usize>> =
-        HashMap::new();
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
 
     for idx in 0..images.len() {
         let root = uf.find(idx);
-        groups
-            .entry(root)
-            .or_default()
-            .push(idx);
+        groups.entry(root).or_default().push(idx);
     }
 
-    let groups = groups.into_values()
-    .filter(|g| g.len() > 1)
-    .map(|ids| ids.iter().map(|id| images[*id].path.clone()).collect::<Vec<_>>())
-    .collect::<Vec<_>>();
+    let groups = groups
+        .into_values()
+        .filter(|g| g.len() > 1)
+        .map(|ids| {
+            ids.iter()
+                .map(|id| images[*id].path.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     for (id, group) in groups.iter().enumerate() {
         info!(id, ?group, "group");
@@ -345,7 +349,10 @@ fn finalize_videos(
         let fps: Vec<Option<crate::media::video::fingerprint::VideoFingerprint>> =
             fps_with_meta.iter().map(|(_, _, fp)| fp.clone()).collect();
 
-        let mut clusters: Vec<(Vec<PathBuf>, crate::media::video::fingerprint::VideoFingerprint)> = vec![];
+        let mut clusters: Vec<(
+            Vec<PathBuf>,
+            crate::media::video::fingerprint::VideoFingerprint,
+        )> = vec![];
 
         for (i, f) in files.iter().enumerate() {
             let fp = match &fps[i] {
@@ -376,7 +383,10 @@ fn finalize_videos(
                 ops.push(crate::mover::Operation::Singleton(cluster[0].clone()));
             } else {
                 let dir = format!("video_{}_{}", bucket, hash_repr);
-                ops.push(crate::mover::Operation::Cluster { target: dir, files: cluster });
+                ops.push(crate::mover::Operation::Cluster {
+                    target: dir,
+                    files: cluster,
+                });
             }
         }
     }

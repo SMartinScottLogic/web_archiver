@@ -17,7 +17,7 @@ pub fn execute(ops: Vec<Operation>) -> anyhow::Result<()> {
         match op {
             Operation::Image(p) => move_file(&p, Path::new("./image"))?,
             Operation::Singleton(p) => move_file(&p, Path::new("./temp1"))?,
-            Operation::Cluster { target: dir, files }=> {
+            Operation::Cluster { target: dir, files } => {
                 let base = PathBuf::from(dir);
 
                 for f in files {

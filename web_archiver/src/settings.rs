@@ -97,8 +97,7 @@ struct Args {
 
 #[allow(dead_code)]
 pub fn parse_human_size(src: &str) -> Result<u64, String> {
-    parse_size::parse_size(src)
-    .map_err(|e| format!("Invalid size {}: {:?}", src, e))
+    parse_size::parse_size(src).map_err(|e| format!("Invalid size {}: {:?}", src, e))
 }
 
 #[allow(dead_code)]

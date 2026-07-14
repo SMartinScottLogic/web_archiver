@@ -1,5 +1,6 @@
 use anyhow::Result;
 use common::{settings::Host, types::FetchTask};
+use flate2::read::GzDecoder;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::{
@@ -8,9 +9,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use url::Url;
-use flate2::read::GzDecoder;
 
 use crate::{frontier::db::frontier::FrontierDbTrait, settings::CONFIG};
 
@@ -48,7 +48,7 @@ where
     fn process(&self, path: &Path, depth: u32) -> Result<()> {
         let reader = open_json_reader(path)?;
         let content: Value = serde_json::from_reader(reader)?;
-        
+
         let mut links = HashSet::new();
         Self::get_links(&mut links, &content);
 
