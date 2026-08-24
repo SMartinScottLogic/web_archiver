@@ -1,5 +1,4 @@
 mod bktree;
-mod cache;
 mod media;
 mod mover;
 mod planner;
@@ -17,13 +16,9 @@ struct Args {
     #[arg(default_value = ".")]
     paths: Vec<PathBuf>,
 
-    /// Re-scan destination folders (video_*, image, temp1)
+    /// Re-scan destination folders (video_*, image)
     #[arg(long)]
     rescan_destinations: bool,
-
-    /// Re-scan only temp1 (ignore other destination filters)
-    #[arg(long)]
-    rescan_temp1: bool,
 
     /// Read-only (scan and plan only)
     #[arg(long)]
@@ -64,10 +59,7 @@ fn main() -> anyhow::Result<()> {
 
     info!(?args, "Starting video-sorter");
 
-    let mut cache = cache::load_cache()?;
-    cache::prune_missing(&mut cache);
-
-    let mut planner = planner::Planner::new(cache, args.clone());
+    let mut planner = planner::Planner::new(args.clone());
 
     for root in &args.paths {
         let abs_path = absolute(root)?;
@@ -76,16 +68,12 @@ fn main() -> anyhow::Result<()> {
         info!(path=%&abs_path.display(), "Finished scan");
     }
 
-    let (plan, cache) = planner.finalize();
+    let plan = planner.finalize();
 
     let total = plan.len();
     let images = plan
         .iter()
         .filter(|op| matches!(op, mover::Operation::Image(_)))
-        .count();
-    let singleton = plan
-        .iter()
-        .filter(|op| matches!(op, mover::Operation::Singleton(_)))
         .count();
     let clusters = plan
         .iter()
@@ -104,14 +92,13 @@ fn main() -> anyhow::Result<()> {
         .filter(|op| matches!(op, mover::Operation::Delete(_)))
         .count();
 
-    info!(total, images, singleton, clusters, delete, "Plan finalized");
+    info!(total, images, clusters, delete, "Plan finalized");
 
     if !args.read_only {
         mover::execute(plan)?;
     } else {
         info!(?plan, "plan");
     }
-    cache::save_cache(&cache)?;
 
     Ok(())
 }

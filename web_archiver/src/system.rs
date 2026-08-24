@@ -69,9 +69,12 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
                 // Check if disk space is low; pause task spawning if so
-                while let Ok(true) = disk::should_pause_tasks() {
+                if let Ok(true) = disk::should_pause_tasks() {
                     warn!("Disk space low; pausing worker spawning");
-                    sleep(Duration::from_secs(1)).await;
+                    while let Ok(true) = disk::should_pause_tasks() {
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                    continue;
                 }
 
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
@@ -137,7 +140,9 @@ where
                 // Check if disk space is low; pause email polling if so
                 if let Ok(true) = disk::should_pause_tasks() {
                     warn!("Disk space low; pausing email polling");
-                    sleep(Duration::from_secs(5)).await;
+                    while let Ok(true) = disk::should_pause_tasks() {
+                        sleep(Duration::from_secs(5)).await;
+                    }
                     continue;
                 }
 
@@ -164,7 +169,9 @@ where
                 // Check if disk space is low; pause JSON polling if so
                 if let Ok(true) = disk::should_pause_tasks() {
                     warn!("Disk space low; pausing JSON polling");
-                    sleep(Duration::from_secs(5)).await;
+                    while let Ok(true) = disk::should_pause_tasks() {
+                        sleep(Duration::from_secs(5)).await;
+                    }
                     continue;
                 }
 

@@ -5,7 +5,6 @@ use tracing::info;
 #[derive(Debug)]
 pub enum Operation {
     Cluster { target: String, files: Vec<PathBuf> },
-    Singleton(PathBuf),
     Image(PathBuf),
     Delete(PathBuf),
 }
@@ -16,7 +15,6 @@ pub fn execute(ops: Vec<Operation>) -> anyhow::Result<()> {
     for (idx, op) in ops.into_iter().enumerate() {
         match op {
             Operation::Image(p) => move_file(&p, Path::new("./image"))?,
-            Operation::Singleton(p) => move_file(&p, Path::new("./temp1"))?,
             Operation::Cluster { target: dir, files } => {
                 let base = PathBuf::from(dir);
 
