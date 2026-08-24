@@ -1,5 +1,4 @@
 use crate::Args;
-use crate::cache::{Cache, get_cache_if_valid, update_cache_fingerprint};
 use crate::media::video::fingerprint::{ToHex, distance, fingerprint_video};
 use crate::media::{infer_mime, is_image, video::ffprobe_duration};
 use rayon::prelude::*;
@@ -57,17 +56,15 @@ pub struct Planner {
     videos: Vec<PathBuf>,
     images: Vec<PathBuf>,
     durations: HashMap<String, usize>,
-    cache: Cache,
     config: Args,
 }
 
 impl Planner {
-    pub fn new(cache: Cache, config: Args) -> Self {
+    pub fn new(config: Args) -> Self {
         Self {
             videos: vec![],
             images: vec![],
             durations: HashMap::new(),
-            cache,
             config,
         }
     }
@@ -76,7 +73,11 @@ impl Planner {
     pub fn scan(&mut self, root: &Path) -> anyhow::Result<()> {
         assert!(root.is_absolute());
         info!("Planner: scanning path");
-        for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
+        for entry in WalkDir::new(root).max_depth(if self.config.rescan_destinations {
+            usize::MAX
+        } else {
+            1
+        }).into_iter().filter_map(Result::ok) {
             let path = entry.path();
 
             if !path.is_file() {
@@ -93,11 +94,7 @@ impl Planner {
             }
 
             let path_buf = path.to_path_buf();
-            let duration = if let Some(cached) = get_cache_if_valid(&self.cache, &path_buf) {
-                Some(cached.duration)
-            } else {
-                ffprobe_duration(path)
-            };
+            let duration = ffprobe_duration(path);
 
             if let Some(d) = duration {
                 let bucket = format!("{:.prec$}", d, prec = self.config.duration_precision);
@@ -111,122 +108,26 @@ impl Planner {
         Ok(())
     }
 
-    pub fn finalize(mut self) -> (Vec<crate::mover::Operation>, Cache) {
+    pub fn finalize(self) -> Vec<crate::mover::Operation> {
         info!("Planner: finalizing plan");
 
         let mut ops = vec![];
 
-        finalize_videos(self.videos, &self.config, &mut self.cache, &mut ops);
+        finalize_videos(self.videos, &self.config, &mut ops);
         finalize_images(self.images, &self.config, &mut ops);
-
-        // let grouped: HashMap<String, Vec<PathBuf>> =
-        //     self.videos.into_iter().fold(HashMap::new(), |mut acc, v| {
-        //         let d = ffprobe_duration(&v).unwrap_or(0.0);
-        //         let key = format!("{:.prec$}", d, prec = self.config.duration_precision);
-        //         acc.entry(key).or_default().push(v);
-        //         acc
-        //     });
-
-        // for (bucket, files) in grouped {
-        //     info!(bucket=%bucket, count=%files.len(), "Processing bucket");
-
-        //     if files.len() == 1 {
-        //         ops.push(crate::mover::Operation::Singleton(files[0].clone()));
-        //         continue;
-        //     }
-
-        //     // Collect fingerprints with file paths and durations for caching
-        //     let fps_with_meta: Vec<_> = files
-        //         .par_iter()
-        //         .map(|f| {
-        //             let d = ffprobe_duration(f).unwrap_or(0.0);
-        //             let fp = fingerprint_video(f, d);
-        //             (f.clone(), d, fp)
-        //         })
-        //         .collect();
-
-        //     // Update cache with newly computed fingerprints
-        //     for (path, duration, fp) in &fps_with_meta {
-        //         if let Some(fp) = fp
-        //             && let Ok(_) = update_cache_fingerprint(
-        //                 &mut self.cache,
-        //                 path.clone(),
-        //                 *duration,
-        //                 crate::fingerprint::hash_to_hex(&fp.q25),
-        //                 crate::fingerprint::hash_to_hex(&fp.q50),
-        //                 crate::fingerprint::hash_to_hex(&fp.q75),
-        //             )
-        //         {
-        //             info!(path=%path.display(), "Cached fingerprint");
-        //         }
-        //     }
-
-        //     // Extract just the fingerprints for clustering
-        //     let fps: Vec<Option<crate::fingerprint::VideoFingerprint>> =
-        //         fps_with_meta.iter().map(|(_, _, fp)| fp.clone()).collect();
-
-        //     let mut clusters: Vec<(Vec<PathBuf>, crate::fingerprint::VideoFingerprint)> = vec![];
-
-        //     for (i, f) in files.iter().enumerate() {
-        //         let fp = match &fps[i] {
-        //             Some(x) => x,
-        //             None => continue,
-        //         };
-
-        //         let mut placed = false;
-
-        //         for (cluster, rep_fp) in &mut clusters {
-        //             if distance(fp, rep_fp) <= self.config.hash_threshold {
-        //                 cluster.push(f.clone());
-        //                 placed = true;
-        //                 break;
-        //             }
-        //         }
-
-        //         if !placed {
-        //             clusters.push((vec![f.clone()], fp.clone()));
-        //         }
-        //     }
-
-        //     for (cluster, rep_fp) in clusters.into_iter() {
-        //         let hash_repr = crate::fingerprint::hash_to_hex(&rep_fp.q50)[0..12].to_string();
-        //         info!(bucket=%bucket, hash=%hash_repr, cluster_size=%cluster.len(), "Found cluster");
-
-        //         if cluster.len() == 1 {
-        //             ops.push(crate::mover::Operation::Singleton(cluster[0].clone()));
-        //         } else {
-        //             let dir = format!("video_{}_{}", bucket, hash_repr);
-        //             ops.push(crate::mover::Operation::Cluster(dir, cluster));
-        //         }
-        //     }
-        // }
-
-        // for img in self.images {
-        //     if let Some(image) = image::ImageReader::open(&img)
-        //         .ok()
-        //         .and_then(|reader| reader.decode().ok())
-        //     {
-        //         if image.width() * image.height() < self.config.min_image_pixels {
-        //             ops.push(crate::mover::Operation::Delete(img));
-        //             continue;
-        //         }
-        //     }
-
-        //     ops.push(crate::mover::Operation::Image(img));
-        // }
 
         info!(ops=%ops.len(), "Planner: finalize complete");
 
-        (ops, self.cache)
+        ops
     }
 }
 
-#[instrument(skip(files, _config, _ops))]
-fn finalize_images(files: Vec<PathBuf>, _config: &Args, _ops: &mut [crate::mover::Operation]) {
+#[instrument(skip(files, _config, ops))]
+fn finalize_images(files: Vec<PathBuf>, _config: &Args, ops: &mut Vec<crate::mover::Operation>) {
     let mut uf = UnionFind::new(files.len());
 
     debug!(?files, "images");
-    let images = files
+    let images: Vec<crate::media::image::fingerprint::ImageRecord> = files
         .par_iter()
         .filter_map(|path| {
             let image = image::ImageReader::open(path)
@@ -281,7 +182,7 @@ fn finalize_images(files: Vec<PathBuf>, _config: &Args, _ops: &mut [crate::mover
         groups.entry(root).or_default().push(idx);
     }
 
-    let groups = groups
+    let groups: Vec<Vec<PathBuf>> = groups
         .into_values()
         .filter(|g| g.len() > 1)
         .map(|ids| {
@@ -293,14 +194,17 @@ fn finalize_images(files: Vec<PathBuf>, _config: &Args, _ops: &mut [crate::mover
 
     for (id, group) in groups.iter().enumerate() {
         info!(id, ?group, "group");
+        for image in group {
+            ops.push(crate::mover::Operation::Image(image.to_owned()))
+        }
+        // TODO Replace the above with grouped
     }
 }
 
-#[instrument(skip(videos, config, cache, ops))]
+#[instrument(skip(videos, config, ops))]
 fn finalize_videos(
     videos: Vec<PathBuf>,
     config: &Args,
-    cache: &mut HashMap<PathBuf, crate::cache::CachedVideo>,
     ops: &mut Vec<crate::mover::Operation>,
 ) {
     let grouped: HashMap<String, Vec<PathBuf>> =
@@ -314,11 +218,6 @@ fn finalize_videos(
     for (bucket, files) in grouped {
         info!(bucket=%bucket, count=%files.len(), "Processing bucket");
 
-        if files.len() == 1 {
-            ops.push(crate::mover::Operation::Singleton(files[0].clone()));
-            continue;
-        }
-
         // Collect fingerprints with file paths and durations for caching
         let fps_with_meta: Vec<_> = files
             .par_iter()
@@ -328,22 +227,6 @@ fn finalize_videos(
                 (f.clone(), d, fp)
             })
             .collect();
-
-        // Update cache with newly computed fingerprints
-        for (path, duration, fp) in &fps_with_meta {
-            if let Some(fp) = fp
-                && let Ok(_) = update_cache_fingerprint(
-                    cache,
-                    path.clone(),
-                    *duration,
-                    fp.q25.to_hex(),
-                    fp.q50.to_hex(),
-                    fp.q75.to_hex(),
-                )
-            {
-                info!(path=%path.display(), "Cached fingerprint");
-            }
-        }
 
         // Extract just the fingerprints for clustering
         let fps: Vec<Option<crate::media::video::fingerprint::VideoFingerprint>> =
@@ -379,15 +262,11 @@ fn finalize_videos(
             let hash_repr = rep_fp.q50.to_hex()[0..12].to_string();
             info!(bucket=%bucket, hash=%hash_repr, cluster_size=%cluster.len(), "Found cluster");
 
-            if cluster.len() == 1 {
-                ops.push(crate::mover::Operation::Singleton(cluster[0].clone()));
-            } else {
                 let dir = format!("video_{}_{}", bucket, hash_repr);
                 ops.push(crate::mover::Operation::Cluster {
                     target: dir,
                     files: cluster,
                 });
-            }
         }
     }
 }

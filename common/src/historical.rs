@@ -87,6 +87,7 @@ impl HistoricalPage {
                     "Expected {} to be a new page, but already existed with content: {}, wanted to insert {}",
                     page.page, other, text
                 );
+                panic!("Duplicate page: {:?}: {:?}", snapshot.metadata, other.cmp(text));
                 return Err(anyhow::Error::msg("cannot add a duplicate page"));
             };
         }

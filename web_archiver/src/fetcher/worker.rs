@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     fs::{File, create_dir_all},
     io::Write as _,
     path::{Path, PathBuf},
@@ -55,10 +56,33 @@ where
             let _ = save_content(task, &filename, &body, content_type, db)
                 .inspect_err(|e| error!(?e, ?filename, "save content"));
         }
-        Err(err) => {
-            error!("Failed to fetch {}: {}", url, err);
+        Err(err)=> {
+            if contains_enhance_your_calm(&err) {
+                info!("ENHANCE_YOUR_CALM received for {}. Marking failed.", url);
+                if let Err(db_err) = db.mark_failed_article(task.article_id) {
+                    error!(?db_err, "Failed to mark article complete after ENHANCE_YOUR_CALM");
+                }
+            } else {
+                error!("Failed to fetch {}: {:?}", url, err);
+            }
         }
     }
+}
+
+fn contains_enhance_your_calm(err: &reqwest::Error) -> bool {
+    let mut source = err.source();
+    while let Some(inner) = source {
+        let text = inner.to_string();
+        debug!("inner: {}", text);
+        if text.contains("ENHANCE_YOUR_CALM") {
+            return true;
+        }
+        if text.contains("detected excessive load generating behavior") {
+            return true;
+        }
+        source = inner.source();
+    }
+    false
 }
 
 fn save_content<DB>(

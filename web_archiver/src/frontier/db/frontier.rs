@@ -11,6 +11,7 @@ pub trait FrontierDbTrait: Send + Sync + 'static {
     fn connect(conn: Arc<Mutex<Connection>>) -> Self;
     fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> Result<(), anyhow::Error>;
     fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
+    fn mark_failed_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
 }
 #[derive(Clone)]
 pub struct FrontierDb {
@@ -200,6 +201,22 @@ impl FrontierDb {
         )?;
         Ok(())
     }
+
+    /// Mark all URLs in an article as complete in the frontier
+    pub fn mark_failed_article(&self, article_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"UPDATE frontier
+            SET status = 'failed'
+            WHERE url_id IN (
+                SELECT id
+                FROM urls
+                WHERE article_id = ?1
+            );"#,
+            params![article_id],
+        )?;
+        Ok(())
+    }
 }
 
 impl FrontierDbTrait for FrontierDb {
@@ -215,5 +232,10 @@ impl FrontierDbTrait for FrontierDb {
     fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error> {
         self.mark_complete_article(article_id)
             .context("mark complete")
+    }
+
+    fn mark_failed_article(&self,article_id: ArticleId) -> Result<(),anyhow::Error> {
+        self.mark_failed_article(article_id)
+            .context("mark failed")
     }
 }

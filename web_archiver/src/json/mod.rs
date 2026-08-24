@@ -254,6 +254,10 @@ mod tests {
         fn mark_complete_article(&self, _article_id: ArticleId) -> Result<(), anyhow::Error> {
             todo!()
         }
+
+        fn mark_failed_article(&self, _article_id: ArticleId) -> rusqlite::Result<(),anyhow::Error> {
+            todo!()
+        }
     }
 
     fn setup_json_db() -> JsonDb {
