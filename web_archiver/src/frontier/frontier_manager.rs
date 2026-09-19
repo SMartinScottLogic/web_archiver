@@ -100,10 +100,13 @@ impl FrontierManager {
                     }
                 }
                 Some(true) => {
-                    panic!(
+                    error!(
                         "Invalid task - use playwright should NEVER be seen in poll: {:?}",
                         task
                     );
+                    if let Err(e) = self.db.mark_failed(task.url_id) {
+                        error!("Failed to mark failed for {}: {}", task.url, e);
+                    }
                 }
                 Some(false) => {
                     if (self.tx_fetch.send(task).await).is_err() {
