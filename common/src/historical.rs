@@ -148,7 +148,7 @@ impl HistoricalPage {
         if let (Some(current_time), Some(snapshot_time)) = (current_fetch_time, snapshot_fetch_time)
         {
             assert!(
-                snapshot_time > current_time,
+                snapshot_time >= current_time,
                 "snapshot_time: {}, current_time: {}",
                 snapshot_time,
                 current_time

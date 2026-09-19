@@ -198,6 +198,16 @@ impl FrontierDb {
         Ok(())
     }
 
+    /// Mark a URL as complete in the frontier
+    pub fn mark_failed(&self, url_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE frontier SET status = 'failed' WHERE url_id = ?1",
+            params![url_id],
+        )?;
+        Ok(())
+    }
+
     /// Mark all URLs in an article as complete in the frontier
     pub fn mark_complete_article(&self, article_id: i64) -> Result<()> {
         let conn = {
