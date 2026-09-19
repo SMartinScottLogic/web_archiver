@@ -73,11 +73,15 @@ impl Planner {
     pub fn scan(&mut self, root: &Path) -> anyhow::Result<()> {
         assert!(root.is_absolute());
         info!("Planner: scanning path");
-        for entry in WalkDir::new(root).max_depth(if self.config.rescan_destinations {
-            usize::MAX
-        } else {
-            1
-        }).into_iter().filter_map(Result::ok) {
+        for entry in WalkDir::new(root)
+            .max_depth(if self.config.rescan_destinations {
+                usize::MAX
+            } else {
+                1
+            })
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
 
             if !path.is_file() {
@@ -202,11 +206,7 @@ fn finalize_images(files: Vec<PathBuf>, _config: &Args, ops: &mut Vec<crate::mov
 }
 
 #[instrument(skip(videos, config, ops))]
-fn finalize_videos(
-    videos: Vec<PathBuf>,
-    config: &Args,
-    ops: &mut Vec<crate::mover::Operation>,
-) {
+fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mover::Operation>) {
     let grouped: HashMap<String, Vec<PathBuf>> =
         videos.into_iter().fold(HashMap::new(), |mut acc, v| {
             let d = ffprobe_duration(&v).unwrap_or(0.0);
@@ -262,11 +262,11 @@ fn finalize_videos(
             let hash_repr = rep_fp.q50.to_hex()[0..12].to_string();
             info!(bucket=%bucket, hash=%hash_repr, cluster_size=%cluster.len(), "Found cluster");
 
-                let dir = format!("video_{}_{}", bucket, hash_repr);
-                ops.push(crate::mover::Operation::Cluster {
-                    target: dir,
-                    files: cluster,
-                });
+            let dir = format!("video_{}_{}", bucket, hash_repr);
+            ops.push(crate::mover::Operation::Cluster {
+                target: dir,
+                files: cluster,
+            });
         }
     }
 }

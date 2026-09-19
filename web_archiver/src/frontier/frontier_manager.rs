@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 /// Minimal Week 1 frontier manager.
 /// Maintains in-memory queue and seen cache, sends FetchTasks to workers.
@@ -86,10 +86,13 @@ impl FrontierManager {
         Ok(self.queue.pop())
     }
 
-    async fn poll_loop(&mut self) {
-        if self.tx_fetch.capacity() > 0
-            && let Ok(Some(task)) = self.claim_next()
-        {
+    #[instrument(name = "frontier_dispatch", level = "debug", skip_all)]
+    async fn dispatch_tasks(&mut self) -> usize {
+        let mut dispatched = 0;
+        while self.tx_fetch.capacity() > 0 {
+            let Ok(Some(task)) = self.claim_next() else {
+                break;
+            };
             match self.should_crawl(&task.url, task.depth).await {
                 None => {
                     if let Err(e) = self.db.mark_complete(task.url_id) {
@@ -105,11 +108,23 @@ impl FrontierManager {
                 Some(false) => {
                     if (self.tx_fetch.send(task).await).is_err() {
                         error!("Worker channel closed, frontier stopping");
-                        return;
+                        return dispatched;
                     }
+                    dispatched += 1;
                 }
             }
         }
+        debug!(
+            dispatched,
+            queue_capacity = self.tx_fetch.capacity(),
+            queue_max_capacity = self.tx_fetch.max_capacity(),
+            "Frontier dispatched fetch tasks"
+        );
+        dispatched
+    }
+
+    async fn poll_loop(&mut self) {
+        self.dispatch_tasks().await;
 
         // --- LOG: Show fetched and total pages ---
         let fetched = self.db.count_fetched().unwrap_or(0);

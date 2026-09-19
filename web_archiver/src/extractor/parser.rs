@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use map_macro::hash_map;
 use scraper::{Html, Selector};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, instrument, trace};
 
 use crate::extractor::router::FetchedArticlePage;
 use crate::extractor::{DiscoveredLink, DiscoveredLinks, FetchedPage};
@@ -20,19 +20,30 @@ pub async fn extractor_loop(
     tx_frontier: Sender<DiscoveredLinks>,
 ) {
     while let Some(fetched) = rx.recv().await {
-        debug!("Extractor received page: {}", fetched.task.url);
+        let url = fetched.task.url.clone();
+        let body_bytes = fetched.body.len();
+        debug!(
+            url = %url,
+            body_bytes,
+            queue_capacity = rx.capacity(),
+            queue_max_capacity = rx.max_capacity(),
+            "Extractor received page"
+        );
         if let Ok((page, links)) = extract_page(fetched).await {
             debug!(
-                "Extractor send extracted page to storage ({}/{})",
-                tx_storage.capacity(),
-                tx_storage.max_capacity()
+                url = %url,
+                body_bytes,
+                queue_capacity = tx_storage.capacity(),
+                queue_max_capacity = tx_storage.max_capacity(),
+                "Extractor sending page to storage"
             );
 
             let _ = tx_storage.send(page).await;
             debug!(
-                "Extractor send discovered links to frontier ({}/{})",
-                tx_frontier.capacity(),
-                tx_frontier.max_capacity()
+                url = %url,
+                queue_capacity = tx_frontier.capacity(),
+                queue_max_capacity = tx_frontier.max_capacity(),
+                "Extractor sending discovered links to frontier"
             );
             let _ = tx_frontier.send(links).await;
         }
@@ -53,6 +64,12 @@ lazy_static! {
     };
 }
 
+#[instrument(
+    name = "extract_page",
+    level = "debug",
+    skip(fetched),
+    fields(url = %fetched.task.url, body_bytes = fetched.body.len())
+)]
 async fn extract_page(fetched: FetchedPage) -> Result<(FetchedArticlePage, DiscoveredLinks)> {
     let html = String::from_utf8_lossy(&fetched.body);
     let document = Html::parse_document(&html);

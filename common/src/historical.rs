@@ -82,13 +82,16 @@ impl HistoricalPage {
                 }
             };
             if let Some(other) = result.insert(page.page, text) {
-                error!("snapshot: {:?}", snapshot);
-                error!(
-                    "Expected {} to be a new page, but already existed with content: {}, wanted to insert {}",
-                    page.page, other, text
-                );
-                panic!("Duplicate page: {:?}: {:?}", snapshot.metadata, other.cmp(text));
-                return Err(anyhow::Error::msg("cannot add a duplicate page"));
+                let different = other.cmp(text);
+                if different != std::cmp::Ordering::Equal {
+                    error!("snapshot: {:?}", snapshot);
+                    error!(
+                        "Expected {} to be a new page, but already existed with content: {}, wanted to insert {}",
+                        page.page, other, text
+                    );
+                    panic!("Duplicate page: {:?}: {:?}", snapshot.metadata, different);
+                    return Err(anyhow::Error::msg("cannot add a duplicate page"));
+                }
             };
         }
         Ok(result)

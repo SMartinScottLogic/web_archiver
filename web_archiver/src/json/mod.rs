@@ -255,7 +255,10 @@ mod tests {
             todo!()
         }
 
-        fn mark_failed_article(&self, _article_id: ArticleId) -> rusqlite::Result<(),anyhow::Error> {
+        fn mark_failed_article(
+            &self,
+            _article_id: ArticleId,
+        ) -> rusqlite::Result<(), anyhow::Error> {
             todo!()
         }
     }

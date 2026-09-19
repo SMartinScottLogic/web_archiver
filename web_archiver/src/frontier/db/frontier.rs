@@ -4,7 +4,7 @@ use common::url::extract_domain;
 use common::{types::FetchTask, url::remove_pagination_params};
 use rusqlite::{Connection, Result, params};
 use std::sync::{Arc, Mutex};
-use tracing::error;
+use tracing::{debug_span, error};
 
 #[cfg_attr(test, mockall::automock)]
 pub trait FrontierDbTrait: Send + Sync + 'static {
@@ -156,7 +156,13 @@ impl FrontierDb {
 
     /// Count the number of fetched pages (status = 'complete')
     pub fn count_fetched(&self) -> Result<u64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = {
+            let lock_span = debug_span!("sqlite_count_fetched_connection_lock");
+            let _lock_guard = lock_span.enter();
+            self.conn.lock().unwrap()
+        };
+        let query_span = debug_span!("sqlite_count_fetched");
+        let _query_guard = query_span.enter();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM frontier WHERE status = 'complete'",
             [],
@@ -167,7 +173,13 @@ impl FrontierDb {
 
     /// Count the number of pending or in-progress pages
     pub fn count_pending(&self) -> Result<u64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = {
+            let lock_span = debug_span!("sqlite_count_pending_connection_lock");
+            let _lock_guard = lock_span.enter();
+            self.conn.lock().unwrap()
+        };
+        let query_span = debug_span!("sqlite_count_pending");
+        let _query_guard = query_span.enter();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM frontier WHERE status = 'pending' OR status = 'in_progress'",
             [],
@@ -188,7 +200,14 @@ impl FrontierDb {
 
     /// Mark all URLs in an article as complete in the frontier
     pub fn mark_complete_article(&self, article_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = {
+            let lock_span = debug_span!("sqlite_connection_lock", article_id);
+            let _lock_guard = lock_span.enter();
+            self.conn.lock().unwrap()
+        };
+
+        let query_span = debug_span!("sqlite_mark_complete_article", article_id);
+        let _query_guard = query_span.enter();
         conn.execute(
             r#"UPDATE frontier
             SET status = 'complete'
@@ -234,8 +253,7 @@ impl FrontierDbTrait for FrontierDb {
             .context("mark complete")
     }
 
-    fn mark_failed_article(&self,article_id: ArticleId) -> Result<(),anyhow::Error> {
-        self.mark_failed_article(article_id)
-            .context("mark failed")
+    fn mark_failed_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error> {
+        self.mark_failed_article(article_id).context("mark failed")
     }
 }
