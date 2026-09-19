@@ -66,6 +66,10 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
         semaphore: Arc<Semaphore>,
         db: Arc<DB>,
     ) {
+        let client = reqwest::Client::builder()
+            .user_agent(&CONFIG.get().unwrap().user_agent)
+            .build()
+            .expect("failed to build HTTP client");
         tokio::spawn(async move {
             while let Some(task) = rx_fetch.recv().await {
                 // Check if disk space is low; pause task spawning if so
@@ -80,9 +84,10 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
                 let db = db.clone();
+                let client = client.clone();
 
                 tokio::spawn(async move {
-                    worker_loop_single(task, tx, db).await;
+                    worker_loop_single(task, tx, db, &client).await;
                     drop(permit);
                 });
             }

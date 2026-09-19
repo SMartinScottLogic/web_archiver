@@ -164,7 +164,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
         if event_enabled!(Level::DEBUG) {
             debug!(?self.filename, ?self.snapshot, "finalize");
         } else {
-            info!(?self.filename, "finalize");
+            debug!(?self.filename, "finalize");
         }
         let article_id = self.task.article_id;
         // 1. Read from archive, or create empty record

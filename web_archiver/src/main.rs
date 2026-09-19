@@ -28,7 +28,7 @@ fn setup_logging() {
         .with_env_filter(env_filter)
         .with_thread_ids(false)
         .with_thread_names(false)
-        .with_span_events(FmtSpan::NONE)
+        .with_span_events(FmtSpan::CLOSE)
         .init();
 }
 

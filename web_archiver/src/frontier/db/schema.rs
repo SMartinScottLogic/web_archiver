@@ -83,6 +83,9 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_urls_domain
         ON urls(domain);
 
+        CREATE INDEX IF NOT EXISTS idx_urls_article_id
+        ON urls(article_id);
+
         CREATE INDEX IF NOT EXISTS idx_frontier_status_priority_depth
         ON frontier(status, priority DESC, depth);
         
@@ -107,5 +110,31 @@ mod tests {
             .unwrap();
         let mut rows = stmt.query([]).unwrap();
         assert!(rows.next().unwrap().is_some());
+    }
+
+    #[test]
+    fn test_article_completion_query_uses_article_id_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+
+        let uses_article_id_index = conn
+            .prepare(
+                "EXPLAIN QUERY PLAN
+                 UPDATE frontier
+                 SET status = 'complete'
+                 WHERE url_id IN (
+                     SELECT id FROM urls WHERE article_id = ?1
+                 )",
+            )
+            .unwrap()
+            .query_map([1_i64], |row| row.get::<_, String>(3))
+            .unwrap()
+            .any(|detail| {
+                detail
+                    .map(|detail| detail.contains("idx_urls_article_id"))
+                    .unwrap_or(false)
+            });
+
+        assert!(uses_article_id_index);
     }
 }

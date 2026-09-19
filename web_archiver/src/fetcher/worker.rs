@@ -15,24 +15,30 @@ use reqwest::{
     header::{CONTENT_DISPOSITION, CONTENT_TYPE},
 };
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info};
+use tracing::{debug, debug_span, error, info, instrument};
 use uuid::Uuid;
 
 use crate::{extractor::FetchedPage, frontier::db::frontier::FrontierDbTrait, settings::CONFIG};
 
-pub async fn worker_loop_single<DB>(task: FetchTask, tx: Sender<FetchedPage>, db: Arc<DB>)
-where
+#[instrument(
+    name = "fetch_worker",
+    level = "debug",
+    skip(tx, db, client),
+    fields(url = %task.url)
+)]
+pub async fn worker_loop_single<DB>(
+    task: FetchTask,
+    tx: Sender<FetchedPage>,
+    db: Arc<DB>,
+    client: &reqwest::Client,
+) where
     DB: FrontierDbTrait,
 {
-    let client = reqwest::Client::builder()
-        .user_agent(&CONFIG.get().unwrap().user_agent)
-        .build()
-        .unwrap();
-
     let url = task.url.clone();
     debug!("Fetching page {} ...", &url);
-    match fetch_page(&client, &url).await {
+    match fetch_page(client, &url).await {
         Ok((Some((major, _minor)), _, body)) if major == "text" => {
+            let body_bytes = body.len();
             let fetched = FetchedPage {
                 task,
                 status_code: 200,
@@ -42,25 +48,34 @@ where
             };
             debug!("Fetched page successfully: {}", url);
 
-            info!(
-                "Worker sending page to extractor: {} ({}/{})",
-                fetched.task.url,
-                tx.capacity(),
-                tx.max_capacity()
+            debug!(
+                url = %url,
+                body_bytes,
+                queue_capacity = tx.capacity(),
+                queue_max_capacity = tx.max_capacity(),
+                "Worker sending page to extractor"
             );
             if let Err(e) = tx.send(fetched).await {
                 error!("Failed to send page to extractor: {}", e);
             }
         }
         Ok((content_type, filename, body)) => {
+            debug!(
+                url = %url,
+                body_bytes = body.len(),
+                "Fetched non-HTML content"
+            );
             let _ = save_content(task, &filename, &body, content_type, db)
                 .inspect_err(|e| error!(?e, ?filename, "save content"));
         }
-        Err(err)=> {
+        Err(err) => {
             if contains_enhance_your_calm(&err) {
                 info!("ENHANCE_YOUR_CALM received for {}. Marking failed.", url);
                 if let Err(db_err) = db.mark_failed_article(task.article_id) {
-                    error!(?db_err, "Failed to mark article complete after ENHANCE_YOUR_CALM");
+                    error!(
+                        ?db_err,
+                        "Failed to mark article complete after ENHANCE_YOUR_CALM"
+                    );
                 }
             } else {
                 error!("Failed to fetch {}: {:?}", url, err);
@@ -85,6 +100,16 @@ fn contains_enhance_your_calm(err: &reqwest::Error) -> bool {
     false
 }
 
+#[instrument(
+    name = "save_content",
+    level = "debug",
+    skip(body, db),
+    fields(
+        filename = ?filename,
+        binary_size = body.len(),
+        content_type = ?content_type
+    )
+)]
 fn save_content<DB>(
     task: FetchTask,
     filename: &Path,
@@ -101,16 +126,32 @@ where
         ?content_type,
         "other content_type"
     );
-    create_dir_all(filename.parent().unwrap())?;
-    let mut file = File::create(filename)?;
-    file.write_all(body)?;
+
+    {
+        let filesystem_span = debug_span!("save_content.filesystem");
+        let _filesystem_guard = filesystem_span.enter();
+        create_dir_all(filename.parent().unwrap())?;
+        let mut file = File::create(filename)?;
+        file.write_all(body)?;
+    }
+
     info!(?filename, ?content_type, "media file");
 
-    db.mark_complete_article(task.article_id)?;
+    {
+        let database_span = debug_span!("save_content.database");
+        let _database_guard = database_span.enter();
+        db.mark_complete_article(task.article_id)?;
+    }
 
     Ok(())
 }
 
+#[instrument(
+    name = "http_fetch",
+    level = "debug",
+    skip(client),
+    fields(url = %url)
+)]
 async fn fetch_page(
     client: &reqwest::Client,
     url: &str,
@@ -227,7 +268,8 @@ mod tests {
         };
         let db = MockFrontierDbTrait::new();
         let (tx, mut rx) = mpsc::channel(1);
-        worker_loop_single(task, tx, Arc::new(db)).await;
+        let client = reqwest::Client::new();
+        worker_loop_single(task, tx, Arc::new(db), &client).await;
         // Should receive a FetchedPage
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);
