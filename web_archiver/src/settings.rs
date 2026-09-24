@@ -194,6 +194,7 @@ pub mod test_setup {
                     use_playwright: false,
                     ignore_robots: false,
                     max_depth: None,
+                    inactive: false,
                 },
                 Host {
                     name: "Example".to_string(),
@@ -202,6 +203,7 @@ pub mod test_setup {
                     use_playwright: false,
                     ignore_robots: false,
                     max_depth: None,
+                    inactive: false,
                 },
             ],
             mailboxes: Vec::new(),
