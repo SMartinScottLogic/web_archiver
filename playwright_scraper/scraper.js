@@ -104,10 +104,14 @@ async function setStatus(url_id, status) {
       // Update URL status
     const updateJob = db.prepare(
       `UPDATE frontier 
-      SET status = ? 
+      SET status = ?,
+          latest_fetch_time = CASE
+            WHEN ? = 'complete' THEN strftime('%s', 'now')
+            ELSE latest_fetch_time
+          END
       WHERE url_id = ?`);
 
-updateJob.run(status, url_id);
+updateJob.run(status, status, url_id);
 }
 
 function safeFilename(url) {

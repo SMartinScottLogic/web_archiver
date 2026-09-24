@@ -36,7 +36,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             discovered_from INTEGER,
             status TEXT NOT NULL DEFAULT 'pending',
             claimed_at INTEGER,
-            attempt_count INTEGER DEFAULT 0
+            attempt_count INTEGER DEFAULT 0,
+            latest_fetch_time INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS fetch_history (

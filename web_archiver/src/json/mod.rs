@@ -343,6 +343,7 @@ mod tests {
                 name: "Example".into(),
                 pages: common::settings::PageType::None,
                 max_depth: None,
+                inactive: false,
             },
             Host {
                 domains: vec!["rust-lang.org".into()],
@@ -351,6 +352,7 @@ mod tests {
                 name: "RustLang".into(),
                 pages: common::settings::PageType::None,
                 max_depth: None,
+                inactive: false,
             },
         ];
 

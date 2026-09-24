@@ -9,6 +9,8 @@ pub struct Host {
     #[serde(default)]
     pub pages: PageType,
     #[serde(default)]
+    pub inactive: bool,
+    #[serde(default)]
     pub use_playwright: bool,
     #[serde(default)]
     pub ignore_robots: bool,

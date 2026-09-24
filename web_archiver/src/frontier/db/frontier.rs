@@ -192,7 +192,9 @@ impl FrontierDb {
     pub fn mark_complete(&self, url_id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE frontier SET status = 'complete' WHERE url_id = ?1",
+            "UPDATE frontier
+             SET status = 'complete', latest_fetch_time = strftime('%s', 'now')
+             WHERE url_id = ?1",
             params![url_id],
         )?;
         Ok(())
@@ -220,7 +222,7 @@ impl FrontierDb {
         let _query_guard = query_span.enter();
         conn.execute(
             r#"UPDATE frontier
-            SET status = 'complete'
+            SET status = 'complete', latest_fetch_time = strftime('%s', 'now')
             WHERE url_id IN (
                 SELECT id
                 FROM urls

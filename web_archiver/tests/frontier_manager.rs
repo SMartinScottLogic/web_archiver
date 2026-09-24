@@ -56,6 +56,7 @@ fn setup_test_config() {
                 use_playwright: false,
                 ignore_robots: false,
                 max_depth: None,
+                inactive: false,
             },
             Host {
                 name: "Bar".to_string(),
@@ -64,6 +65,7 @@ fn setup_test_config() {
                 use_playwright: false,
                 ignore_robots: false,
                 max_depth: None,
+                inactive: false,
             },
         ],
         mailboxes: Vec::new(),
@@ -126,6 +128,7 @@ fn setup_manager() -> FrontierManager {
             discovered_from INTEGER,
             status TEXT,
             claimed_at INTEGER,
+            latest_fetch_time INTEGER DEFAULT 0,
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
         );

@@ -29,6 +29,7 @@ fn setup_db() -> FrontierDb {
             discovered_from INTEGER,
             status TEXT,
             claimed_at INTEGER,
+            latest_fetch_time INTEGER DEFAULT 0,
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
         );
@@ -136,4 +137,54 @@ fn test_mark_complete_and_counts() {
     db.mark_complete(c2.url_id).unwrap();
     assert_eq!(db.count_fetched().unwrap(), 2);
     assert_eq!(db.count_pending().unwrap(), 0);
+    let latest_fetch_time: i64 = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT latest_fetch_time FROM frontier WHERE url_id = ?1",
+            [c2.url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(latest_fetch_time > 0);
+}
+
+#[test]
+fn test_mark_complete_article_records_latest_fetch_time() {
+    let db = setup_db();
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO articles (id, url) VALUES (?1, ?2)",
+            (1_i64, "http://foo.com"),
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO urls (id, url, article_id) VALUES
+                (1, 'http://foo.com/a', 1),
+                (2, 'http://foo.com/b', 1);
+             INSERT INTO frontier (url_id, priority, depth, status) VALUES
+                (1, 0, 0, 'in_progress'),
+                (2, 0, 0, 'in_progress');",
+        )
+        .unwrap();
+    }
+
+    db.mark_complete_article(1).unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let completed_times = conn
+        .prepare(
+            "SELECT latest_fetch_time FROM frontier
+             WHERE url_id IN (1, 2)
+             ORDER BY url_id",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, i64>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(completed_times.len(), 2);
+    assert!(completed_times.iter().all(|fetch_time| *fetch_time > 0));
 }
