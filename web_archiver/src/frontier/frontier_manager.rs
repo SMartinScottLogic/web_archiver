@@ -95,8 +95,8 @@ impl FrontierManager {
             };
             match self.should_crawl(&task.url, task.depth).await {
                 None => {
-                    if let Err(e) = self.db.mark_complete(task.url_id) {
-                        error!("Failed to mark complete for {}: {}", task.url, e);
+                    if let Err(e) = self.db.mark(task.url_id, "skipped") {
+                        error!("Failed to mark skipped for {}: {}", task.url, e);
                     }
                 }
                 Some(true) => {
@@ -104,7 +104,7 @@ impl FrontierManager {
                         "Invalid task - use playwright should NEVER be seen in poll: {:?}",
                         task
                     );
-                    if let Err(e) = self.db.mark_failed(task.url_id) {
+                    if let Err(e) = self.db.mark(task.url_id, "failed") {
                         error!("Failed to mark failed for {}: {}", task.url, e);
                     }
                 }

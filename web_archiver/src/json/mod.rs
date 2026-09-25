@@ -251,13 +251,10 @@ mod tests {
             todo!()
         }
 
-        fn mark_complete_article(&self, _article_id: ArticleId) -> Result<(), anyhow::Error> {
-            todo!()
-        }
-
-        fn mark_failed_article(
+        fn mark_article(
             &self,
             _article_id: ArticleId,
+            _status: &str,
         ) -> rusqlite::Result<(), anyhow::Error> {
             todo!()
         }

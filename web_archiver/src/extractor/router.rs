@@ -184,7 +184,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             .write_page(&self.filename)
             .inspect_err(|err| error!("Failed to write to {:?}: {:?}", self.filename, err))?;
         // 4. Update db
-        let r = self.db.mark_complete_article(article_id);
+        let r = self.db.mark_article(article_id, "complete");
         info!(?self.filename, new_file, "finalized");
         r
     }
@@ -611,9 +611,9 @@ mod tests {
         let mut mock_db = MockFrontierDbTrait::new();
 
         mock_db
-            .expect_mark_complete_article()
+            .expect_mark_article()
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let db = Arc::new(mock_db);
 
@@ -639,7 +639,7 @@ mod tests {
             .join("article.json");
 
         let mut mock_db = MockFrontierDbTrait::new();
-        mock_db.expect_mark_complete_article().returning(|_| Ok(()));
+        mock_db.expect_mark_article().returning(|_, _| Ok(()));
 
         let db = Arc::new(mock_db);
 
@@ -679,10 +679,10 @@ mod tests {
         let mut mock_db = MockFrontierDbTrait::new();
 
         mock_db
-            .expect_mark_complete_article()
-            .with(eq(1))
+            .expect_mark_article()
+            .with(eq(1), eq("complete"))
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let db = Arc::new(mock_db);
 
@@ -704,7 +704,7 @@ mod tests {
         initial.write_page(&file_path).unwrap();
 
         let mut mock_db = MockFrontierDbTrait::new();
-        mock_db.expect_mark_complete_article().returning(|_| Ok(()));
+        mock_db.expect_mark_article().returning(|_, _| Ok(()));
 
         let db = Arc::new(mock_db);
 
@@ -731,8 +731,8 @@ mod tests {
         let mut mock_db = MockFrontierDbTrait::new();
 
         mock_db
-            .expect_mark_complete_article()
-            .returning(|_| Err(anyhow::anyhow!("db failure")));
+            .expect_mark_article()
+            .returning(|_, _| Err(anyhow::anyhow!("db failure")));
 
         let db = Arc::new(mock_db);
 
