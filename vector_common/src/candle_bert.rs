@@ -7,7 +7,7 @@ use candle_core::{
 };
 use candle_nn::VarBuilder;
 
-use hf_hub::{Repo, RepoType, api::sync::Api};
+use hf_hub::HFClientSync;
 use tokenizers::Tokenizer;
 
 use crate::Embedder;
@@ -97,17 +97,25 @@ impl CandleBert {
             None => "jinaai/jina-embeddings-v2-base-en".to_string(),
         };
 
+        let download = |filename: &str| -> anyhow::Result<std::path::PathBuf> {
+            let client = HFClientSync::new()?;
+            let (owner, name) = model_name
+                .split_once('/')
+                .context("Hugging Face model name must use the owner/name format")?;
+            Ok(client
+                .model(owner, name)
+                .download_file()
+                .filename(filename)
+                .send()?)
+        };
+
         let model = match model_file {
             Some(model_file) => std::path::PathBuf::from(model_file),
-            None => Api::new()?
-                .repo(Repo::new(model_name.to_string(), RepoType::Model))
-                .get("model.safetensors")?,
+            None => download("model.safetensors")?,
         };
         let tokenizer = match tokenizer {
             Some(file) => std::path::PathBuf::from(file),
-            None => Api::new()?
-                .repo(Repo::new(model_name.to_string(), RepoType::Model))
-                .get("tokenizer.json")?,
+            None => download("tokenizer.json")?,
         };
         let device = Self::device(cpu)?;
         let tokenizer = tokenizers::Tokenizer::from_file(tokenizer).map_err(E::msg)?;
