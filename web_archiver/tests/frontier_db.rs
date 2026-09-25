@@ -99,7 +99,7 @@ fn test_enqueue_batch_deduplication() {
     for _ in 0..2 {
         let t = db.claim_next(1).unwrap().pop().unwrap();
         seen.push(t.url.clone());
-        db.mark_complete(t.url_id).unwrap();
+        db.mark(t.url_id, "complete").unwrap();
     }
     assert!(seen.contains(&t1.url));
     assert!(seen.contains(&t2.url));
@@ -130,11 +130,11 @@ fn test_mark_complete_and_counts() {
     };
     db.enqueue_batch(&[t1.clone(), t2.clone()], false).unwrap();
     let c1 = db.claim_next(1).unwrap().pop().unwrap();
-    db.mark_complete(c1.url_id).unwrap();
+    db.mark(c1.url_id, "complete").unwrap();
     assert_eq!(db.count_fetched().unwrap(), 1);
     assert_eq!(db.count_pending().unwrap(), 1);
     let c2 = db.claim_next(1).unwrap().pop().unwrap();
-    db.mark_complete(c2.url_id).unwrap();
+    db.mark(c2.url_id, "complete").unwrap();
     assert_eq!(db.count_fetched().unwrap(), 2);
     assert_eq!(db.count_pending().unwrap(), 0);
     let latest_fetch_time: i64 = db
@@ -171,7 +171,7 @@ fn test_mark_complete_article_records_latest_fetch_time() {
         .unwrap();
     }
 
-    db.mark_complete_article(1).unwrap();
+    db.mark_article(1, "complete").unwrap();
 
     let conn = db.conn.lock().unwrap();
     let completed_times = conn
@@ -187,4 +187,43 @@ fn test_mark_complete_article_records_latest_fetch_time() {
         .unwrap();
     assert_eq!(completed_times.len(), 2);
     assert!(completed_times.iter().all(|fetch_time| *fetch_time > 0));
+}
+
+#[test]
+fn test_non_complete_statuses_do_not_record_fetch_time() {
+    let db = setup_db();
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute_batch(
+            "INSERT INTO urls (id, url, article_id) VALUES
+                (1, 'http://foo.com/a', 1),
+                (2, 'http://foo.com/b', 1);
+             INSERT INTO frontier (url_id, priority, depth, status) VALUES
+                (1, 0, 0, 'in_progress'),
+                (2, 0, 0, 'in_progress');",
+        )
+        .unwrap();
+    }
+
+    db.mark(1, "failed").unwrap();
+    db.mark(2, "skipped").unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let statuses_and_times = conn
+        .prepare(
+            "SELECT status, latest_fetch_time FROM frontier
+             WHERE url_id IN (1, 2)
+             ORDER BY url_id",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        statuses_and_times,
+        vec![("failed".to_string(), 0), ("skipped".to_string(), 0),]
+    );
 }

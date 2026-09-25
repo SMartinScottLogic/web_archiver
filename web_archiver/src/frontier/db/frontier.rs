@@ -10,8 +10,7 @@ use tracing::{debug_span, error};
 pub trait FrontierDbTrait: Send + Sync + 'static {
     fn connect(conn: Arc<Mutex<Connection>>) -> Self;
     fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> Result<(), anyhow::Error>;
-    fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
-    fn mark_failed_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error>;
+    fn mark_article(&self, article_id: ArticleId, status: &str) -> Result<(), anyhow::Error>;
 }
 #[derive(Clone)]
 pub struct FrontierDb {
@@ -188,63 +187,45 @@ impl FrontierDb {
         Ok(count as u64)
     }
 
-    /// Mark a URL as complete in the frontier
-    pub fn mark_complete(&self, url_id: i64) -> Result<()> {
+    /// Set a URL's frontier status.
+    pub fn mark(&self, url_id: i64, status: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE frontier
-             SET status = 'complete', latest_fetch_time = strftime('%s', 'now')
+             SET status = ?2,
+                 latest_fetch_time = CASE
+                     WHEN ?2 = 'complete' THEN strftime('%s', 'now')
+                     ELSE latest_fetch_time
+                 END
              WHERE url_id = ?1",
-            params![url_id],
+            params![url_id, status],
         )?;
         Ok(())
     }
 
-    /// Mark a URL as complete in the frontier
-    pub fn mark_failed(&self, url_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE frontier SET status = 'failed' WHERE url_id = ?1",
-            params![url_id],
-        )?;
-        Ok(())
-    }
-
-    /// Mark all URLs in an article as complete in the frontier
-    pub fn mark_complete_article(&self, article_id: i64) -> Result<()> {
+    /// Set the frontier status for all URLs in an article.
+    pub fn mark_article(&self, article_id: i64, status: &str) -> Result<()> {
         let conn = {
             let lock_span = debug_span!("sqlite_connection_lock", article_id);
             let _lock_guard = lock_span.enter();
             self.conn.lock().unwrap()
         };
 
-        let query_span = debug_span!("sqlite_mark_complete_article", article_id);
+        let query_span = debug_span!("sqlite_mark_article", article_id, status);
         let _query_guard = query_span.enter();
         conn.execute(
             r#"UPDATE frontier
-            SET status = 'complete', latest_fetch_time = strftime('%s', 'now')
+            SET status = ?2,
+                latest_fetch_time = CASE
+                    WHEN ?2 = 'complete' THEN strftime('%s', 'now')
+                    ELSE latest_fetch_time
+                END
             WHERE url_id IN (
                 SELECT id
                 FROM urls
                 WHERE article_id = ?1
             );"#,
-            params![article_id],
-        )?;
-        Ok(())
-    }
-
-    /// Mark all URLs in an article as complete in the frontier
-    pub fn mark_failed_article(&self, article_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            r#"UPDATE frontier
-            SET status = 'failed'
-            WHERE url_id IN (
-                SELECT id
-                FROM urls
-                WHERE article_id = ?1
-            );"#,
-            params![article_id],
+            params![article_id, status],
         )?;
         Ok(())
     }
@@ -260,12 +241,8 @@ impl FrontierDbTrait for FrontierDb {
             .context("enqueuing")
     }
 
-    fn mark_complete_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error> {
-        self.mark_complete_article(article_id)
-            .context("mark complete")
-    }
-
-    fn mark_failed_article(&self, article_id: ArticleId) -> Result<(), anyhow::Error> {
-        self.mark_failed_article(article_id).context("mark failed")
+    fn mark_article(&self, article_id: ArticleId, status: &str) -> Result<(), anyhow::Error> {
+        self.mark_article(article_id, status)
+            .with_context(|| format!("mark article {status}"))
     }
 }

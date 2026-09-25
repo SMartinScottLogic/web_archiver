@@ -71,7 +71,7 @@ pub async fn worker_loop_single<DB>(
         Err(err) => {
             if contains_enhance_your_calm(&err) {
                 info!("ENHANCE_YOUR_CALM received for {}. Marking failed.", url);
-                if let Err(db_err) = db.mark_failed_article(task.article_id) {
+                if let Err(db_err) = db.mark_article(task.article_id, "failed") {
                     error!(
                         ?db_err,
                         "Failed to mark article complete after ENHANCE_YOUR_CALM"
@@ -140,7 +140,7 @@ where
     {
         let database_span = debug_span!("save_content.database");
         let _database_guard = database_span.enter();
-        db.mark_complete_article(task.article_id)?;
+        db.mark_article(task.article_id, "complete")?;
     }
 
     Ok(())
