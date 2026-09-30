@@ -3,11 +3,11 @@ use rusqlite::{Connection, Result};
 pub fn settings(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
+    PRAGMA busy_timeout=30000;
     PRAGMA journal_mode=WAL;
     PRAGMA synchronous=NORMAL;
     PRAGMA temp_store=MEMORY;
     PRAGMA cache_size=100000;
-    PRAGMA busy_timeout=5000;
     "#,
     )
 }
@@ -111,6 +111,18 @@ mod tests {
             .unwrap();
         let mut rows = stmt.query([]).unwrap();
         assert!(rows.next().unwrap().is_some());
+    }
+
+    #[test]
+    fn test_settings_configures_busy_timeout() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        settings(&conn).unwrap();
+
+        let timeout: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(timeout, 30_000);
     }
 
     #[test]
