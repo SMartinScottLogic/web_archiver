@@ -4,7 +4,7 @@ use crate::media::{infer_mime, is_image, video::ffprobe_duration};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use walkdir::WalkDir;
 
 #[derive(Debug)]
@@ -231,6 +231,7 @@ fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mov
         // Extract just the fingerprints for clustering
         let fps: Vec<Option<crate::media::video::fingerprint::VideoFingerprint>> =
             fps_with_meta.iter().map(|(_, _, fp)| fp.clone()).collect();
+        let mut unfingerprinted = Vec::new();
 
         let mut clusters: Vec<(
             Vec<PathBuf>,
@@ -240,7 +241,11 @@ fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mov
         for (i, f) in files.iter().enumerate() {
             let fp = match &fps[i] {
                 Some(x) => x,
-                None => continue,
+                None => {
+                    warn!(path=%f.display(), bucket=%bucket, "No video frames could be fingerprinted; routing to unfingerprinted directory");
+                    unfingerprinted.push(f.clone());
+                    continue;
+                }
             };
 
             let mut placed = false;
@@ -259,7 +264,13 @@ fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mov
         }
 
         for (cluster, rep_fp) in clusters.into_iter() {
-            let hash_repr = rep_fp.q50.to_hex()[0..12].to_string();
+            let representative = rep_fp
+                .q50
+                .as_ref()
+                .or(rep_fp.q25.as_ref())
+                .or(rep_fp.q75.as_ref())
+                .expect("fingerprinted video cluster must have a representative sample");
+            let hash_repr = representative.to_hex()[0..12].to_string();
             info!(bucket=%bucket, hash=%hash_repr, cluster_size=%cluster.len(), "Found cluster");
 
             let dir = format!("video_{}_{}", bucket, hash_repr);
@@ -268,5 +279,39 @@ fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mov
                 files: cluster,
             });
         }
+
+        add_unfingerprinted_files(bucket.as_str(), unfingerprinted, ops);
+    }
+}
+
+fn add_unfingerprinted_files(
+    bucket: &str,
+    files: Vec<PathBuf>,
+    ops: &mut Vec<crate::mover::Operation>,
+) {
+    if !files.is_empty() {
+        ops.push(crate::mover::Operation::Cluster {
+            target: format!("video_{}_unfingerprinted", bucket),
+            files,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn videos_without_fingerprints_are_routed_by_duration() {
+        let file = PathBuf::from("short-or-truncated.mp4");
+        let mut ops = Vec::new();
+
+        add_unfingerprinted_files("0.5", vec![file.clone()], &mut ops);
+
+        assert!(matches!(
+            ops.as_slice(),
+            [crate::mover::Operation::Cluster { target, files }]
+                if target == "video_0.5_unfingerprinted" && files == &[file]
+        ));
     }
 }
