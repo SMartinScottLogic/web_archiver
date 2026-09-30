@@ -90,7 +90,6 @@ impl HistoricalPage {
                         page.page, other, text
                     );
                     panic!("Duplicate page: {:?}: {:?}", snapshot.metadata, different);
-                    return Err(anyhow::Error::msg("cannot add a duplicate page"));
                 }
             };
         }
