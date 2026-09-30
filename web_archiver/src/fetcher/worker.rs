@@ -164,14 +164,14 @@ async fn fetch_page(
         .and_then(|content_type| content_type.to_str().ok())
         .and_then(|content_type| MimeContentTypeHeader::from_header(content_type.to_string()).ok())
         .map(|content_type| content_type.content_type);
-    let filename = generate_filename(&resp);
+    let filename = generate_filename(&resp, content_type.as_ref());
     let bytes = resp.bytes().await?;
 
     Ok((content_type, filename, bytes.to_vec()))
 }
 
-fn generate_filename(response: &Response) -> PathBuf {
-    let media_dir = PathBuf::from(&CONFIG.get().unwrap().archive_dir).join("media");
+fn generate_filename(response: &Response, content_type: Option<&(String, String)>) -> PathBuf {
+    let media_dir = media_directory(Path::new(&CONFIG.get().unwrap().archive_dir), content_type);
     if let Some(name) = response.url().path().split('/').next_back() {
         let filename = media_dir.join(name);
         if !filename.exists() {
@@ -232,6 +232,14 @@ fn generate_filename(response: &Response) -> PathBuf {
     }
 }
 
+fn media_directory(archive_dir: &Path, content_type: Option<&(String, String)>) -> PathBuf {
+    let media_dir = archive_dir.join("media");
+    match content_type {
+        Some((major, minor)) => media_dir.join(format!("{major}-{minor}")),
+        None => media_dir,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use common::types::Priority;
@@ -274,5 +282,18 @@ mod tests {
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);
         assert!(!fetched.body.is_empty());
+    }
+
+    #[test]
+    fn test_media_directory_uses_full_content_type() {
+        let content_type = ("image".to_string(), "png".to_string());
+        let media_dir = media_directory(Path::new("archive"), Some(&content_type));
+        assert_eq!(media_dir, PathBuf::from("archive/media/image-png"));
+    }
+
+    #[test]
+    fn test_media_directory_without_content_type_uses_media_root() {
+        let media_dir = media_directory(Path::new("archive"), None);
+        assert_eq!(media_dir, PathBuf::from("archive/media"));
     }
 }

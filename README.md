@@ -49,6 +49,7 @@ It is composed of multiple binaries and shared libraries, enabling flexible and 
 ### Storage Format
 - One JSON file per archived article (Markdown + metadata)
 - Multi-page support within a single file
+- Non-HTML media files with a Content-Type are stored under `archive/media/<type>-<subtype>/` (for example, `image/png` uses `archive/media/image-png/`). Files without a parseable Content-Type remain directly under `archive/media/`.
 
 ### Indexing & Search
 - CSV-based archive indexing
