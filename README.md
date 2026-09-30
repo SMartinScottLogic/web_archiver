@@ -146,6 +146,11 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 google-chrome --remote-debugging-port=9222 --user-data-dir=./chrome-profile
 
+Run the Playwright scraper alongside the archiver using the same database path
+for both processes (for example, `../crawler.db`). Both configure a 30-second
+SQLite busy timeout so brief periods of concurrent writes can wait for the
+other process to finish.
+
 ---
 
 ## License

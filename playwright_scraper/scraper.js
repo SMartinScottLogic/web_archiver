@@ -41,6 +41,7 @@ const VISITS_FILE = path.resolve(args[2]);
 
 // Open (or create) the database file
 const db = new Database(QUEUE_DB);
+db.pragma("busy_timeout = 30000");
 
 //
 // 1. Create schema
