@@ -63,6 +63,7 @@ It is composed of multiple binaries and shared libraries, enabling flexible and 
 | Crate            | Type   | Purpose                              | Depends On             |
 |------------------|--------|--------------------------------------|------------------------|
 | web_archiver     | binary | Fetch and store web content          | common                 |
+| archive_time_backfill | binary + lib | Restore database fetch times from archived article JSON | common |
 | archive_indexer  | binary | Build CSV index of archive           | common                 |
 | vector_indexer   | binary | Populate vector DB from archive      | common, vector_common  |
 | hybrid_search    | binary | Perform keyword + vector search      | common, vector_common  |
@@ -144,6 +145,38 @@ Extractor / Parser
 1. Ingestion → web_archiver  
 2. Indexing → archive_indexer + vector_indexer  
 3. Query → hybrid_search  
+
+---
+
+## Repair database fetch timestamps
+
+The one-time `archive_time_backfill` workspace tool reads each article's most
+recent fetch timestamp from archived JSON and maps its URL to the matching
+database article. It updates all frontier rows for each matched article,
+but only where `latest_fetch_time` is currently `0`. Existing nonzero
+timestamps are preserved.
+
+Back up the database before applying updates. Start with a dry run (the default):
+
+```sh
+cargo run --release -p archive_time_backfill -- \
+  --archive-dir ./archive \
+  --db ./crawler.db
+```
+
+Review the matched and unmatched URL counts, then add `--apply` to write:
+
+```sh
+cargo run --release -p archive_time_backfill -- \
+  --archive-dir ./archive \
+  --db ./crawler.db \
+  --apply
+```
+
+The archive scan completes before writes begin, and database changes are
+committed as a single transaction. Malformed JSON files or files with no usable
+timestamp are reported and skipped while other files are processed. Archive
+directory traversal or database errors abort the run.
 
 ---
 
