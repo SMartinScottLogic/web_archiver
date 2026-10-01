@@ -227,3 +227,102 @@ fn test_non_complete_statuses_do_not_record_fetch_time() {
         vec![("failed".to_string(), 0), ("skipped".to_string(), 0),]
     );
 }
+
+#[test]
+fn test_requeue_stale_completed_only_requeues_old_completed_urls() {
+    const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
+
+    let db = setup_db();
+    let stale = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://stale.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    let recent = FetchTask {
+        url: "http://recent.example.com".to_string(),
+        ..stale.clone()
+    };
+    db.enqueue_batch(&[stale, recent], false).unwrap();
+    let claimed = db.claim_next(2).unwrap();
+    for task in &claimed {
+        db.mark(task.url_id, "complete").unwrap();
+    }
+
+    let old_fetch_time = chrono::Utc::now().timestamp() - 31 * SECONDS_PER_DAY;
+    let recent_fetch_time = chrono::Utc::now().timestamp() - 29 * SECONDS_PER_DAY;
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE frontier SET latest_fetch_time = ?1 WHERE url_id = ?2",
+            (
+                old_fetch_time,
+                claimed
+                    .iter()
+                    .find(|task| task.url.contains("stale"))
+                    .unwrap()
+                    .url_id,
+            ),
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE frontier SET latest_fetch_time = ?1 WHERE url_id = ?2",
+            (
+                recent_fetch_time,
+                claimed
+                    .iter()
+                    .find(|task| task.url.contains("recent"))
+                    .unwrap()
+                    .url_id,
+            ),
+        )
+        .unwrap();
+    }
+
+    assert_eq!(db.requeue_stale_completed(30).unwrap(), 1);
+    let stale_url_id = claimed
+        .iter()
+        .find(|task| task.url.contains("stale"))
+        .unwrap()
+        .url_id;
+    let retained_fetch_time: i64 = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT latest_fetch_time FROM frontier WHERE url_id = ?1",
+            [stale_url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained_fetch_time, old_fetch_time);
+
+    let requeued = db.claim_next(2).unwrap();
+    assert_eq!(requeued.len(), 1);
+    assert!(requeued[0].url.contains("stale"));
+
+    let recent_status: String = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT status FROM frontier WHERE url_id = ?1",
+            [claimed
+                .iter()
+                .find(|task| task.url.contains("recent"))
+                .unwrap()
+                .url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(recent_status, "complete");
+}
+
+#[test]
+fn test_requeue_stale_completed_rejects_unrepresentable_age() {
+    let db = setup_db();
+    assert!(db.requeue_stale_completed(u64::MAX).is_err());
+}

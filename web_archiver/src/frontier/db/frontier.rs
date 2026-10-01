@@ -42,6 +42,28 @@ impl FrontierDb {
         Ok(updated)
     }
 
+    /// Re-queue completed URLs whose latest fetch is older than the configured age.
+    pub fn requeue_stale_completed(&self, refetch_after_days: u64) -> anyhow::Result<usize> {
+        const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
+        let age_seconds = refetch_after_days
+            .checked_mul(SECONDS_PER_DAY)
+            .and_then(|seconds| i64::try_from(seconds).ok())
+            .ok_or_else(|| anyhow::anyhow!("refetch age exceeds the supported range"))?;
+        let cutoff = chrono::Utc::now()
+            .timestamp()
+            .checked_sub(age_seconds)
+            .ok_or_else(|| anyhow::anyhow!("refetch age exceeds the supported range"))?;
+
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE frontier
+             SET status = 'pending'
+             WHERE status = 'complete' AND latest_fetch_time <= ?1",
+            params![cutoff],
+        )?;
+        Ok(updated)
+    }
+
     /// Batch insert fetch tasks (deduplication by URL)
     pub fn enqueue_batch(&self, tasks: &[FetchTask], force_priority: bool) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();

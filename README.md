@@ -94,6 +94,7 @@ archive/<domain>/<url_path>.json
 
 ## Configuration (`config.yaml`)
 
+```yaml
 hosts:
   - name: Example
     domains:
@@ -101,9 +102,18 @@ hosts:
       - blog.example.com
 
 workers: 4
+refetch_after_days: 30
 
 seed_urls:
   - "https://www.example.com/start"
+```
+
+Completed URLs are fetched again after `refetch_after_days` (30 days by
+default). Override the configured age for a run with:
+
+```sh
+cargo run --release -p web_archiver -- --refetch-after-days 7
+```
 
 ---
 
