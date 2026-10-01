@@ -18,6 +18,7 @@ pub const DEFAULT_MIN_FREE_SPACE: u64 = 5 * 1024 * 1024 * 1024; // 5 GiB
 pub struct Config {
     pub archive_dir: String,
     pub archive_time: i64,
+    pub refetch_after_days: u64,
     pub hosts: Vec<Host>,
     pub mailboxes: Vec<Mailbox>,
     pub workers: usize,
@@ -93,6 +94,11 @@ struct Args {
     #[arg(short, long, help_heading = "Archive", value_parser = parse_human_size)]
     #[serde(skip_serializing_if = "Option::is_none")]
     min_free_space: Option<u64>,
+
+    /// Re-fetch completed URLs after this many days
+    #[arg(long, help_heading = "Crawl")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refetch_after_days: Option<u64>,
 }
 
 #[allow(dead_code)]
@@ -137,6 +143,7 @@ impl Default for Config {
         Self {
             archive_dir: "archive".to_string(),
             archive_time: chrono::Utc::now().timestamp(),
+            refetch_after_days: 30,
             hosts: Default::default(),
             mailboxes: Default::default(),
             workers: 1,
@@ -153,7 +160,10 @@ impl Default for Config {
 }
 impl Config {
     pub fn file(path: &str) -> anyhow::Result<Self> {
-        let cli = Args::parse();
+        Self::from_file_with_args(path, Args::parse())
+    }
+
+    fn from_file_with_args(path: &str, cli: Args) -> anyhow::Result<Self> {
         let config: Self = Figment::new()
             .merge(Serialized::defaults(Config::default()))
             .merge(Yaml::file(path))
@@ -220,22 +230,39 @@ pub mod test_setup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Write;
 
     #[test]
     fn test_load_from_file() {
-        let yaml = "hosts:\n  - name: Foo\n    domains: [foo.com]\nworkers: 2\nseed_urls:\n  - http://foo.com\n";
-        let path = "test_config.yaml";
-        let mut file = File::create(path).unwrap();
-        file.write_all(yaml.as_bytes()).unwrap();
-        let config = Config::file(path).unwrap();
+        let yaml = "hosts:\n  - name: Foo\n    domains: [foo.com]\nworkers: 2\nseed_urls:\n  - http://foo.com\nrefetch_after_days: 14\n";
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), yaml).unwrap();
+        let config = Config::file(file.path().to_str().unwrap()).unwrap();
         assert_eq!(config.hosts.len(), 1);
         assert_eq!(config.hosts[0].name, "Foo");
         assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
         assert_eq!(config.workers, 2);
         assert_eq!(config.seed_urls, vec!["http://foo.com".to_string()]);
-        std::fs::remove_file(path).unwrap();
+        assert_eq!(config.refetch_after_days, 14);
+    }
+
+    #[test]
+    fn test_refetch_after_days_defaults_to_30() {
+        let yaml = "hosts: []\n";
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), yaml).unwrap();
+        let args = Args::try_parse_from(["web_archiver"]).unwrap();
+        let config = Config::from_file_with_args(file.path().to_str().unwrap(), args).unwrap();
+        assert_eq!(config.refetch_after_days, 30);
+    }
+
+    #[test]
+    fn test_cli_refetch_after_days_overrides_config() {
+        let yaml = "hosts: []\nrefetch_after_days: 14\n";
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), yaml).unwrap();
+        let args = Args::try_parse_from(["web_archiver", "--refetch-after-days", "7"]).unwrap();
+        let config = Config::from_file_with_args(file.path().to_str().unwrap(), args).unwrap();
+        assert_eq!(config.refetch_after_days, 7);
     }
 
     // ----------------------------

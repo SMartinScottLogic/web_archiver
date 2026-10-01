@@ -88,6 +88,21 @@ impl FrontierManager {
 
     #[instrument(name = "frontier_dispatch", level = "debug", skip_all)]
     async fn dispatch_tasks(&mut self) -> usize {
+        let refetch_after_days = CONFIG.get().unwrap().refetch_after_days;
+        match self.db.requeue_stale_completed(refetch_after_days) {
+            Ok(requeued) if requeued > 0 => {
+                info!(
+                    requeued,
+                    refetch_after_days, "Requeued stale completed URLs"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to requeue stale completed URLs: {}", e);
+                return 0;
+            }
+        }
+
         let mut dispatched = 0;
         while self.tx_fetch.capacity() > 0 {
             let Ok(Some(task)) = self.claim_next() else {

@@ -93,6 +93,25 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_urls_domain_id
         ON urls(domain, id);
         "#,
+    )?;
+
+    let has_latest_fetch_time = {
+        let mut stmt = conn.prepare("PRAGMA table_info(frontier)")?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>>>()?;
+        columns.iter().any(|column| column == "latest_fetch_time")
+    };
+    if !has_latest_fetch_time {
+        conn.execute(
+            "ALTER TABLE frontier ADD COLUMN latest_fetch_time INTEGER DEFAULT 0",
+            [],
+        )?;
+    }
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_frontier_status_latest_fetch_time
+         ON frontier(status, latest_fetch_time);",
     )
 }
 
@@ -111,6 +130,36 @@ mod tests {
             .unwrap();
         let mut rows = stmt.query([]).unwrap();
         assert!(rows.next().unwrap().is_some());
+    }
+
+    #[test]
+    fn test_init_schema_adds_latest_fetch_time_to_existing_frontier() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE frontier (
+                url_id INTEGER PRIMARY KEY,
+                priority INTEGER NOT NULL,
+                depth INTEGER NOT NULL,
+                discovered_from INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                claimed_at INTEGER
+            );",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+
+        let has_latest_fetch_time: bool = conn
+            .query_row(
+                "SELECT EXISTS (
+                    SELECT 1 FROM pragma_table_info('frontier')
+                    WHERE name = 'latest_fetch_time'
+                )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(has_latest_fetch_time);
     }
 
     #[test]
