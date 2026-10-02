@@ -91,27 +91,47 @@ cargo run --bin web_archiver --release
 ### 5. Output
 archive/<domain>/<url_path>.json
 
-### Run with Docker
+### Run with Docker Compose
 
-The Docker image builds the `web_archiver` release binary in a Rust build stage
-and runs it in a smaller Debian runtime image. Copy the example configuration and
-edit its hosts and seed URLs:
+Compose runs the Rust crawler and Playwright scraper. The scraper connects to
+Google Chrome on the Linux host, so its window is visible in your desktop
+session. The crawler and scraper share the SQLite database and archive volume.
+Copy the example configuration and edit its hosts and seed URLs before
+starting:
 
 ```sh
 cp config.example.yaml config.yaml
-mkdir -p data
-sudo chown 10001:10001 data
-docker build -t web-archiver .
-docker run --rm \
-  -v "$PWD/config.yaml:/app/config.yaml:ro" \
-  -v "$PWD/data:/data" \
-  web-archiver
 ```
 
-The container runs as UID 10001. Make the host data directory writable by that
-UID before starting it. The database and archive are stored under `data/` and
-persist across container runs. The local `config.yaml` is excluded from the
-Docker build context; mount it at `/app/config.yaml` as shown above.
+First launch Google Chrome on the host with a dedicated profile and
+remote-debugging bound to loopback:
+
+```sh
+google-chrome \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.config/web-archiver-chrome"
+```
+
+Sign in through that visible Chrome window. Its cookies persist in
+`~/.config/web-archiver-chrome`; do not use your normal Chrome profile for
+remote debugging. Keep Chrome open, then start Compose:
+
+```sh
+docker compose up --build
+```
+
+The scraper uses Linux host networking to connect to Chrome at
+`127.0.0.1:9222`. The debugging port stays on the loopback interface and is not
+published to external networks. This host-network setup targets Docker on Linux.
+The scraper runs `node scraper.js ../crawler.db ../archive/json/
+../visited-pages.jsonl` from inside its `playwright_scraper` directory. Use
+`docker compose logs -f archiver scraper` to follow logs, and
+`docker compose down` to stop the services. The database, archive, and visit
+log persist in the Compose data volume.
+
+For an isolated end-to-end test with a temporary config, separate database,
+and pending X URLs, see [the Compose smoke-test guide](./docs/docker-compose-smoke-test.md).
 
 ---
 
@@ -210,12 +230,12 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 ## Chrome for scraper
 
-google-chrome --remote-debugging-port=9222 --user-data-dir=./chrome-profile
-
-Run the Playwright scraper alongside the archiver using the same database path
-for both processes (for example, `../crawler.db`). Both configure a 30-second
-SQLite busy timeout so brief periods of concurrent writes can wait for the
-other process to finish.
+The Compose scraper attaches to a visible Google Chrome instance on the host
+at `http://127.0.0.1:9222`. Start Chrome with a dedicated user-data directory
+and loopback-only remote debugging as described above. Run the scraper
+alongside the archiver using the same database path (for example,
+`../crawler.db`). Both configure a 30-second SQLite busy timeout so brief
+periods of concurrent writes can wait for the other process to finish.
 
 ---
 
