@@ -42,7 +42,7 @@ impl FrontierDb {
         Ok(updated)
     }
 
-    /// Re-queue completed URLs whose latest fetch is older than the configured age.
+    /// Re-queue stale completed URLs fetched by the standard HTTP workers.
     pub fn requeue_stale_completed(&self, refetch_after_days: u64) -> anyhow::Result<usize> {
         const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
         let age_seconds = refetch_after_days
@@ -58,7 +58,11 @@ impl FrontierDb {
         let updated = conn.execute(
             "UPDATE frontier
              SET status = 'pending'
-             WHERE status = 'complete' AND latest_fetch_time <= ?1",
+             WHERE status = 'complete'
+               AND latest_fetch_time <= ?1
+               AND url_id IN (
+                   SELECT id FROM urls WHERE use_playwright = 0
+               )",
             params![cutoff],
         )?;
         Ok(updated)

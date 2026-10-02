@@ -326,3 +326,43 @@ fn test_requeue_stale_completed_rejects_unrepresentable_age() {
     let db = setup_db();
     assert!(db.requeue_stale_completed(u64::MAX).is_err());
 }
+
+#[test]
+fn test_requeue_stale_completed_leaves_playwright_urls_complete() {
+    let db = setup_db();
+    let task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://playwright.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: true,
+    };
+    db.enqueue_batch(&[task], false).unwrap();
+
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE frontier
+             SET status = 'complete', latest_fetch_time = 1",
+            [],
+        )
+        .unwrap();
+    }
+
+    assert_eq!(db.requeue_stale_completed(1).unwrap(), 0);
+
+    let (status, latest_fetch_time): (String, i64) = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT status, latest_fetch_time FROM frontier",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "complete");
+    assert_eq!(latest_fetch_time, 1);
+}
