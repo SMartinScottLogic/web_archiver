@@ -121,6 +121,50 @@ remote debugging. Keep Chrome open, then start Compose:
 docker compose up --build
 ```
 
+### Compose configuration and data mounts
+
+The crawler's configuration and persistent data are mounted as follows:
+
+| Data | Host or Compose source | Container path | Notes |
+| --- | --- | --- | --- |
+| Crawler config | `./config.yaml` by default | `/app/config.yaml` | Read-only bind mount. Set `ARCHIVER_CONFIG` to use another config file. |
+| SQLite database | `ARCHIVER_DATA` (default: Compose named volume `archive-data`) | `/data/crawler.db` | Shared with the scraper. |
+| Archive and scraper output | `ARCHIVER_DATA` (default: Compose named volume `archive-data`) | `/data/archive` and `/data/visited-pages.jsonl` | Persists across container restarts. |
+
+By default, Docker manages the `archive-data` named volume, so it does not
+appear as a `data/` directory in the repository. `docker compose down` preserves
+it; `docker compose down -v` deletes it. To inspect the mounted files, run:
+
+```sh
+docker compose exec archiver ls -la /data
+```
+
+To use a different configuration file, provide its absolute path when starting
+Compose:
+
+```sh
+ARCHIVER_CONFIG=/absolute/path/to/config.yaml docker compose up --build
+```
+
+The default config is mounted into the container at `/app/config.yaml`, while
+the Compose command explicitly stores the database and archive under `/data`.
+The config's `db` and `archive_dir` settings are overridden by those command-line
+arguments.
+
+Set `ARCHIVER_DATA` to use a specific host directory instead. The path must be
+absolute or relative to the repository, and must be writable by container UID
+`10001`:
+
+```sh
+mkdir -p data
+sudo chown 10001:10001 data
+ARCHIVER_DATA="$PWD/data" docker compose up --build
+```
+
+Both crawler and scraper mount the selected source at `/data`. Switching from
+the default named volume to a host directory does not copy existing database or
+archive files; migrate them first if you need to retain existing data.
+
 The scraper uses Linux host networking to connect to Chrome at
 `127.0.0.1:9222`. The debugging port stays on the loopback interface and is not
 published to external networks. This host-network setup targets Docker on Linux.
