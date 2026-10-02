@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS json_queue (
 );
 `);
 
-const CDP_ENDPOINT = "http://localhost:9222";
+const CDP_ENDPOINT = process.env.CDP_ENDPOINT || "http://localhost:9222";
 
 async function appendVisitLog(entry) {
   // TODO Add to sqlite DB as a processed page

@@ -1,0 +1,30 @@
+services:
+  archiver:
+    build:
+      context: .
+    restart: unless-stopped
+    volumes:
+      - "${ARCHIVER_CONFIG:-./config.yaml}:/app/config.yaml:ro"
+      - archive-data:/data
+    command: ["--archive-dir", "/data/archive", "--db", "/data/crawler.db"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/crawler.db"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  scraper:
+    image: web-archiver-scraper:local
+    build:
+      context: ./playwright_scraper
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      archiver:
+        condition: service_healthy
+    volumes:
+      - archive-data:/data
+
+volumes:
+  archive-data:
