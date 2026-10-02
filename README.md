@@ -91,6 +91,28 @@ cargo run --bin web_archiver --release
 ### 5. Output
 archive/<domain>/<url_path>.json
 
+### Run with Docker
+
+The Docker image builds the `web_archiver` release binary in a Rust build stage
+and runs it in a smaller Debian runtime image. Copy the example configuration and
+edit its hosts and seed URLs:
+
+```sh
+cp config.example.yaml config.yaml
+mkdir -p data
+sudo chown 10001:10001 data
+docker build -t web-archiver .
+docker run --rm \
+  -v "$PWD/config.yaml:/app/config.yaml:ro" \
+  -v "$PWD/data:/data" \
+  web-archiver
+```
+
+The container runs as UID 10001. Make the host data directory writable by that
+UID before starting it. The database and archive are stored under `data/` and
+persist across container runs. The local `config.yaml` is excluded from the
+Docker build context; mount it at `/app/config.yaml` as shown above.
+
 ---
 
 ## Configuration (`config.yaml`)

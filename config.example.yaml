@@ -1,0 +1,12 @@
+hosts:
+  - name: Example
+    domains:
+      - example.com
+
+seed_urls:
+  - "https://example.com/"
+
+workers: 4
+user_agent: "WebArchiver/0.2.0"
+archive_dir: /data/archive
+db: /data/crawler.db
