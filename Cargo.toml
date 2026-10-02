@@ -52,7 +52,7 @@ nix = { version = "0.31", features = ["fs"] }  # Unix system calls including sta
 simhash = "0.3.0"         # Simhash algorithm for 64-bit locality-sensitive hashing and similarity calculation
 oxidelta = "0.1.4"    # VCDIFF (RFC 3284) delta encoder/decoder — Rust reimplementation of xdelta3
 base64 = "0.23.1"                # encodes and decodes base64 as bytes or utf8
-zstd = "0.13"
+zstd = "0.14"
 #rust-bert = "0.23.0"
 itertools = "0.15.0"              # Extra iterator adaptors, iterator methods, free functions, and macros.
 wiremock = "0.6.5"                     # HTTP mocking to test Rust applications.
