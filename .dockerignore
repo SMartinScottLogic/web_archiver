@@ -1,0 +1,11 @@
+.git
+target
+archive
+archive_refetch
+archive_index.csv
+*.db
+*.db-*
+config.yaml
+chrome-profile
+.env
+.env.*
