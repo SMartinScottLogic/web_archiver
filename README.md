@@ -16,6 +16,7 @@ A high-performance, modular web archiver and hybrid search system written in Rus
 - [Configuration](#configuration-configyaml)
 - [Architecture](#architecture)
 - [Pipeline Workflow](#pipeline-workflow)
+- [Page Status Report](./docs/page-status-report.md)
 - [Indexing Pipelines](#indexing-pipelines)
 - [Vector Indexing Setup](#vector-indexing-setup)
 - [Extending](#extending)
@@ -231,6 +232,9 @@ Extractor / Parser
 1. Ingestion → web_archiver  
 2. Indexing → archive_indexer + vector_indexer  
 3. Query → hybrid_search  
+
+See the [page status report](./docs/page-status-report.md) for the crawler,
+JSON-processing, and email-processing status values and transitions.
 
 ---
 

@@ -229,7 +229,7 @@ fn test_non_complete_statuses_do_not_record_fetch_time() {
 }
 
 #[test]
-fn test_requeue_stale_completed_only_requeues_old_completed_urls() {
+fn test_requeue_stale_or_failed_only_requeues_old_completed_http_urls() {
     const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
 
     let db = setup_db();
@@ -282,7 +282,7 @@ fn test_requeue_stale_completed_only_requeues_old_completed_urls() {
         .unwrap();
     }
 
-    assert_eq!(db.requeue_stale_completed(30).unwrap(), 1);
+    assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 1);
     let stale_url_id = claimed
         .iter()
         .find(|task| task.url.contains("stale"))
@@ -322,13 +322,13 @@ fn test_requeue_stale_completed_only_requeues_old_completed_urls() {
 }
 
 #[test]
-fn test_requeue_stale_completed_rejects_unrepresentable_age() {
+fn test_requeue_stale_or_failed_rejects_unrepresentable_age() {
     let db = setup_db();
-    assert!(db.requeue_stale_completed(u64::MAX).is_err());
+    assert!(db.requeue_stale_or_failed(u64::MAX).is_err());
 }
 
 #[test]
-fn test_requeue_stale_completed_leaves_playwright_urls_complete() {
+fn test_requeue_stale_or_failed_leaves_playwright_completed_urls_complete() {
     let db = setup_db();
     let task = FetchTask {
         article_id: 0,
@@ -351,7 +351,7 @@ fn test_requeue_stale_completed_leaves_playwright_urls_complete() {
         .unwrap();
     }
 
-    assert_eq!(db.requeue_stale_completed(1).unwrap(), 0);
+    assert_eq!(db.requeue_stale_or_failed(1).unwrap(), 0);
 
     let (status, latest_fetch_time): (String, i64) = db
         .conn
@@ -365,4 +365,100 @@ fn test_requeue_stale_completed_leaves_playwright_urls_complete() {
         .unwrap();
     assert_eq!(status, "complete");
     assert_eq!(latest_fetch_time, 1);
+}
+
+#[test]
+fn test_requeue_stale_or_failed_requeues_all_failed_urls() {
+    let db = setup_db();
+    let http_task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://failed-http.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    let playwright_task = FetchTask {
+        url: "http://failed-playwright.example.com".to_string(),
+        use_playwright: true,
+        ..http_task.clone()
+    };
+    let skipped_task = FetchTask {
+        url: "http://skipped.example.com".to_string(),
+        ..http_task.clone()
+    };
+    db.enqueue_batch(&[http_task, playwright_task, skipped_task], false)
+        .unwrap();
+
+    let recent_fetch_time = chrono::Utc::now().timestamp();
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute_batch(
+            "UPDATE frontier SET status = 'failed'
+             WHERE url_id IN (
+                 SELECT id FROM urls WHERE url LIKE '%failed-%'
+             );
+             UPDATE frontier SET status = 'skipped'
+             WHERE url_id IN (
+                 SELECT id FROM urls WHERE url LIKE '%skipped.example.com'
+             );",
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE frontier SET latest_fetch_time = ?1 WHERE status = 'failed'",
+            [recent_fetch_time],
+        )
+        .unwrap();
+    }
+
+    assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 2);
+
+    let statuses = {
+        let conn = db.conn.lock().unwrap();
+        conn.prepare(
+            "SELECT urls.url, frontier.status FROM frontier
+             JOIN urls ON urls.id = frontier.url_id
+             ORDER BY urls.url",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    };
+    assert_eq!(
+        statuses,
+        vec![
+            (
+                "http://failed-http.example.com".to_string(),
+                "pending".to_string()
+            ),
+            (
+                "http://failed-playwright.example.com".to_string(),
+                "pending".to_string()
+            ),
+            (
+                "http://skipped.example.com".to_string(),
+                "skipped".to_string()
+            ),
+        ]
+    );
+
+    let claimed_http = db.claim_next(1).unwrap().pop().unwrap();
+    assert!(!claimed_http.use_playwright);
+    assert_eq!(claimed_http.url, "http://failed-http.example.com");
+    let http_status: String = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT status FROM frontier WHERE url_id = ?1",
+            [claimed_http.url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(http_status, "in_progress");
 }
