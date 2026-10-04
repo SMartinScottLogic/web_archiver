@@ -7,6 +7,8 @@ pub struct Host {
     pub name: String,
     pub domains: Vec<String>,
     #[serde(default)]
+    pub exclude_paths: Vec<String>,
+    #[serde(default)]
     pub pages: PageType,
     #[serde(default)]
     pub inactive: bool,
@@ -16,6 +18,12 @@ pub struct Host {
     pub ignore_robots: bool,
     #[serde(alias = "max-depth")]
     pub max_depth: Option<u32>,
+}
+
+impl Host {
+    pub fn excludes_path(&self, path: &str) -> bool {
+        self.exclude_paths.iter().any(|excluded| excluded == path)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -69,5 +77,18 @@ impl Mailbox {
 
     pub fn password(&self) -> String {
         self.password.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Host;
+
+    #[test]
+    fn host_without_exclude_paths_defaults_to_empty() {
+        let host: Host =
+            serde_json::from_str(r#"{"name":"Example","domains":["example.com"]}"#).unwrap();
+
+        assert!(host.exclude_paths.is_empty());
     }
 }

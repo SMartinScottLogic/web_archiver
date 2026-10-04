@@ -200,6 +200,7 @@ pub mod test_setup {
                 Host {
                     name: "Foo".to_string(),
                     domains: vec!["foo.com".to_string()],
+                    exclude_paths: Vec::new(),
                     pages: Default::default(),
                     use_playwright: false,
                     ignore_robots: false,
@@ -209,8 +210,19 @@ pub mod test_setup {
                 Host {
                     name: "Example".to_string(),
                     domains: vec!["example.com".to_string()],
+                    exclude_paths: Vec::new(),
                     pages: Default::default(),
                     use_playwright: false,
+                    ignore_robots: false,
+                    max_depth: None,
+                    inactive: false,
+                },
+                Host {
+                    name: "Twitter".to_string(),
+                    domains: vec!["twitter.com".to_string()],
+                    exclude_paths: vec!["/intent/tweet".to_string()],
+                    pages: Default::default(),
+                    use_playwright: true,
                     ignore_robots: false,
                     max_depth: None,
                     inactive: false,
@@ -233,13 +245,15 @@ mod tests {
 
     #[test]
     fn test_load_from_file() {
-        let yaml = "hosts:\n  - name: Foo\n    domains: [foo.com]\nworkers: 2\nseed_urls:\n  - http://foo.com\nrefetch_after_days: 14\n";
+        let yaml = "hosts:\n  - name: Foo\n    domains: [foo.com]\n    exclude_paths: [/intent/tweet]\nworkers: 2\nseed_urls:\n  - http://foo.com\nrefetch_after_days: 14\n";
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), yaml).unwrap();
-        let config = Config::file(file.path().to_str().unwrap()).unwrap();
+        let args = Args::try_parse_from(["web_archiver"]).unwrap();
+        let config = Config::from_file_with_args(file.path().to_str().unwrap(), args).unwrap();
         assert_eq!(config.hosts.len(), 1);
         assert_eq!(config.hosts[0].name, "Foo");
         assert_eq!(config.hosts[0].domains, vec!["foo.com"]);
+        assert_eq!(config.hosts[0].exclude_paths, vec!["/intent/tweet"]);
         assert_eq!(config.workers, 2);
         assert_eq!(config.seed_urls, vec!["http://foo.com".to_string()]);
         assert_eq!(config.refetch_after_days, 14);

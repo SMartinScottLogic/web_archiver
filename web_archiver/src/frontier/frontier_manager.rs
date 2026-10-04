@@ -217,6 +217,14 @@ impl FrontierManager {
             } else {
                 debug!(domain, matches_domains = ?matching_domains.iter().map(|host| host.name.clone()).collect::<Vec<_>>(), "matches");
             }
+            if let Ok(parsed_url) = url::Url::parse(link)
+                && matching_domains
+                    .iter()
+                    .any(|host| host.excludes_path(parsed_url.path()))
+            {
+                trace!("Skipping URL with excluded path: {}", link);
+                return None;
+            }
             let inactive = matching_domains.iter().any(|host| host.inactive);
             if inactive {
                 return None;
@@ -423,6 +431,40 @@ mod tests {
             .query_row("SELECT url FROM urls", [], |row| row.get(0))
             .unwrap();
         assert_eq!(url, "http://foo.com/page");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_marks_existing_excluded_playwright_path_skipped() {
+        setup_test_config();
+        let mut mgr = setup_manager();
+        let (tx_fetch, mut rx_fetch) = tokio::sync::mpsc::channel(1);
+        mgr.tx_fetch = tx_fetch;
+        mgr.db
+            .conn
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO articles (id, url) VALUES (1, 'https://twitter.com/intent/tweet');
+                 INSERT INTO urls (id, url, article_id, domain, discovered_at, use_playwright)
+                 VALUES (1, 'https://twitter.com/intent/tweet?url=https%3A%2F%2Fwww.example.com',
+                     1, 'twitter.com', 1, 0);
+                 INSERT INTO frontier (url_id, priority, depth, discovered_from, status)
+                 VALUES (1, 0, 0, NULL, 'pending');",
+            )
+            .unwrap();
+
+        assert_eq!(mgr.dispatch_tasks().await, 0);
+        assert!(rx_fetch.try_recv().is_err());
+        let status: String = mgr
+            .db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT status FROM frontier WHERE url_id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "skipped");
     }
 
     #[tokio::test]

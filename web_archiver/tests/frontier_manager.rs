@@ -52,6 +52,7 @@ fn setup_test_config() {
             Host {
                 name: "Foo".to_string(),
                 domains: vec!["foo.com".to_string()],
+                exclude_paths: Vec::new(),
                 pages: Default::default(),
                 use_playwright: false,
                 ignore_robots: false,
@@ -61,6 +62,7 @@ fn setup_test_config() {
             Host {
                 name: "Bar".to_string(),
                 domains: vec!["bar.com".to_string()],
+                exclude_paths: vec!["/social/page".to_string()],
                 pages: Default::default(),
                 use_playwright: false,
                 ignore_robots: false,

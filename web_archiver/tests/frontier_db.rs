@@ -1,9 +1,15 @@
 //! Unit tests for the FrontierDb (database-backed queue)
 
-use common::types::{FetchTask, Priority};
+use common::{
+    settings::Host,
+    types::{FetchTask, Priority},
+};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
-use web_archiver::frontier::db::frontier::FrontierDb;
+use web_archiver::{
+    frontier::db::frontier::FrontierDb,
+    settings::{CONFIG, Config},
+};
 
 fn setup_db() -> FrontierDb {
     let conn = Connection::open_in_memory().unwrap();
@@ -39,6 +45,102 @@ fn setup_db() -> FrontierDb {
     FrontierDb {
         conn: Arc::new(Mutex::new(conn)),
     }
+}
+
+#[test]
+fn test_enqueue_applies_host_path_exclusions_without_matching_query_urls() {
+    CONFIG.get_or_init(|| Config {
+        hosts: vec![
+            Host {
+                name: "Foo".to_string(),
+                domains: vec!["foo.com".to_string()],
+                exclude_paths: Vec::new(),
+                pages: Default::default(),
+                use_playwright: false,
+                ignore_robots: false,
+                max_depth: None,
+                inactive: false,
+            },
+            Host {
+                name: "Bar".to_string(),
+                domains: vec!["excluded.test".to_string()],
+                exclude_paths: vec!["/social/page".to_string()],
+                pages: Default::default(),
+                use_playwright: true,
+                ignore_robots: false,
+                max_depth: None,
+                inactive: false,
+            },
+        ],
+        ..Default::default()
+    });
+
+    let db = setup_db();
+    let tasks = [
+        FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "https://excluded.test/social/page?url=https%3A%2F%2Fwww.example.com%2Fs%2Fstory"
+                .into(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+            use_playwright: false,
+        },
+        FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "https://excluded.test/social/page/extra".into(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+            use_playwright: false,
+        },
+        FetchTask {
+            article_id: 0,
+            url_id: 0,
+            url: "https://foo.com/s/story?url=https%3A%2F%2Fexcluded.test%2Fsocial%2Fpage".into(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+            use_playwright: false,
+        },
+    ];
+    db.enqueue_batch(&tasks, false).unwrap();
+
+    let statuses = {
+        let conn = db.conn.lock().unwrap();
+        conn.prepare(
+            "SELECT urls.url, urls.use_playwright, frontier.status
+             FROM urls JOIN frontier ON urls.id = frontier.url_id
+             ORDER BY urls.url",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, bool>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    };
+    assert_eq!(statuses.len(), 3);
+    assert!(statuses.iter().any(|(url, playwright, status)| {
+        url.contains("excluded.test/social/page?") && *playwright && status == "skipped"
+    }));
+    assert!(statuses.iter().any(|(url, playwright, status)| {
+        url.contains("excluded.test/social/page/extra") && *playwright && status == "pending"
+    }));
+    assert!(statuses.iter().any(|(url, playwright, status)| {
+        url.contains("foo.com/s/story") && !playwright && status == "pending"
+    }));
+
+    let claimed = db.claim_next(10).unwrap();
+    assert_eq!(claimed.len(), 1);
+    assert!(claimed[0].url.contains("foo.com/s/story"));
 }
 
 #[test]
