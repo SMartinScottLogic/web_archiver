@@ -28,14 +28,15 @@ Normal HTTP workers claim only rows whose associated URL has
 | `pending` | Eligible for the appropriate dispatcher: the HTTP frontier manager or Playwright scraper. |
 | `in_progress` | Claimed for a fetch/visit attempt. It does not guarantee that a network request or navigation completed. |
 | `complete` | The code's completion marker. For HTTP work this follows archive/media persistence; for Playwright work it follows a visit attempt. It is not proof of a successful HTTP response or captured API data. |
-| `skipped` | The frontier manager rejected the URL under its crawl checks (for example, invalid/non-HTTP URL, disallowed domain, inactive host, depth or robots policy). |
+| `skipped` | The frontier manager rejected the URL under its crawl checks (for example, invalid/non-HTTP URL, disallowed domain, inactive host, depth or robots policy), or configured host-level `exclude_paths`. Excluded URLs are recorded as skipped when enqueued and are not dispatched to either fetcher. |
 | `failed` | Explicitly assigned in two paths: an HTTP task unexpectedly routed to the normal poller despite requiring Playwright, or a request error containing the `ENHANCE_YOUR_CALM` / excessive-load marker. Other fetch errors are not assigned this status. |
 
 ### Frontier transitions
 
 | Source status | Target status | Situation causing the transition |
 | --- | --- | --- |
-| No row | `pending` | A URL is first enqueued from seeds, discovered links, email content, or JSON content. `INSERT ... ON CONFLICT` preserves an existing row's status; it does not re-pend an existing URL just because it is discovered again. |
+| No row | `pending` | A URL that is not path-excluded is first enqueued from seeds, discovered links, email content, or JSON content. `INSERT ... ON CONFLICT` preserves an existing row's status; it does not re-pend an existing URL just because it is discovered again. |
+| No row or any current status | `skipped` | A URL matches an exact path in its configured host's `exclude_paths`; it is persisted as rejected at enqueue time. |
 | `pending` | `in_progress` | `FrontierDb::claim_next` atomically claims a non-Playwright URL for HTTP work, or the scraper sets a Playwright URL to `in_progress` immediately before opening its browser tab. |
 | `in_progress` | `pending` | At crawler startup, `FrontierManager::new` resets all in-progress frontier rows. At each scraper pass, `resetQueue` resets in-progress Playwright rows. `reset_all` also sets every frontier row to pending when the configured full-reset option is enabled. |
 | `complete` | `pending` | The dispatcher re-queues stale completed HTTP URLs when `latest_fetch_time` is at or before the configured refetch cutoff. This requeue is explicitly limited to `use_playwright = 0`. |

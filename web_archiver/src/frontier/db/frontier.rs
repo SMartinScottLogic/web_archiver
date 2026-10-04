@@ -4,7 +4,10 @@ use common::url::extract_domain;
 use common::{types::FetchTask, url::remove_pagination_params};
 use rusqlite::{Connection, Result, params};
 use std::sync::{Arc, Mutex};
-use tracing::{debug_span, error};
+use tracing::{debug, debug_span, error};
+use url::Url;
+
+use crate::settings::CONFIG;
 
 #[cfg_attr(test, mockall::automock)]
 pub trait FrontierDbTrait: Send + Sync + 'static {
@@ -76,6 +79,35 @@ impl FrontierDb {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         for task in tasks {
+            let parsed_url = Url::parse(&task.url).ok();
+            let domain = parsed_url
+                .as_ref()
+                .and_then(Url::host_str)
+                .map(str::to_owned)
+                .or_else(|| extract_domain(&task.url))
+                .unwrap_or_default();
+            let matching_hosts = CONFIG.get().map(|config| {
+                config
+                    .hosts
+                    .iter()
+                    .filter(|host| host.domains.iter().any(|configured| configured == &domain))
+                    .collect::<Vec<_>>()
+            });
+            let (use_playwright, excluded, route_configured) = match matching_hosts {
+                Some(hosts) if !hosts.is_empty() => {
+                    let path = parsed_url.as_ref().map(Url::path).unwrap_or_default();
+                    (
+                        hosts.iter().any(|host| host.use_playwright),
+                        hosts.iter().any(|host| host.excludes_path(path)),
+                        true,
+                    )
+                }
+                _ => (task.use_playwright, false, false),
+            };
+            if excluded {
+                debug!(url = %task.url, "Rejecting URL due to configured path exclusion");
+            }
+
             // Construct article url from page url
             let article_url = remove_pagination_params(&task.url);
             tx.execute(
@@ -88,8 +120,17 @@ impl FrontierDb {
                 |row: &rusqlite::Row<'_>| row.get(0),
             )?;
             tx.execute(
-                "INSERT OR IGNORE INTO urls (url, domain, discovered_at, article_id, use_playwright) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
-                params![&task.url, extract_domain(&task.url).unwrap_or_default(), article_id, task.use_playwright],
+                "INSERT INTO urls (url, domain, discovered_at, article_id, use_playwright)
+                 VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)
+                 ON CONFLICT(url) DO UPDATE SET use_playwright =
+                    CASE WHEN ?5 THEN excluded.use_playwright ELSE urls.use_playwright END",
+                params![
+                    &task.url,
+                    &domain,
+                    article_id,
+                    use_playwright,
+                    route_configured
+                ],
             )?;
             let url_id: i64 = tx.query_row(
                 "SELECT id FROM urls WHERE url = ?1",
@@ -98,21 +139,23 @@ impl FrontierDb {
             )?;
             tx.execute(
                 r#"INSERT INTO frontier (url_id, priority, depth, discovered_from, status)
-                VALUES (?1, ?2, ?3, ?4, 'pending')
+                VALUES (?1, ?2, ?3, ?4, CASE WHEN ?6 THEN 'skipped' ELSE 'pending' END)
                 ON CONFLICT(url_id) DO UPDATE SET
                     depth = MIN(frontier.depth, excluded.depth),
                     priority = CASE
                         WHEN ?5 THEN excluded.priority
                         WHEN excluded.priority > frontier.priority THEN excluded.priority
                         ELSE frontier.priority
-                    END;
+                    END,
+                    status = CASE WHEN ?6 THEN 'skipped' ELSE frontier.status END;
                 "#,
                 params![
                     url_id,
                     task.priority,
                     task.depth,
                     task.discovered_from,
-                    force_priority
+                    force_priority,
+                    excluded
                 ],
             )?;
         }

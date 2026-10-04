@@ -335,6 +335,7 @@ mod tests {
         let hosts = vec![
             Host {
                 domains: vec!["example.com".into()],
+                exclude_paths: Vec::new(),
                 use_playwright: false,
                 ignore_robots: true,
                 name: "Example".into(),
@@ -344,6 +345,7 @@ mod tests {
             },
             Host {
                 domains: vec!["rust-lang.org".into()],
+                exclude_paths: Vec::new(),
                 use_playwright: true,
                 ignore_robots: true,
                 name: "RustLang".into(),
