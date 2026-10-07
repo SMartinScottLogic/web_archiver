@@ -37,6 +37,7 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             status TEXT NOT NULL DEFAULT 'pending',
             claimed_at INTEGER,
             attempt_count INTEGER DEFAULT 0,
+            next_attempt_at INTEGER,
             latest_fetch_time INTEGER DEFAULT 0
         );
 
@@ -95,23 +96,32 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         "#,
     )?;
 
-    let has_latest_fetch_time = {
+    let columns = {
         let mut stmt = conn.prepare("PRAGMA table_info(frontier)")?;
-        let columns = stmt
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<Vec<_>>>()?;
-        columns.iter().any(|column| column == "latest_fetch_time")
+        stmt.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>>>()?
     };
-    if !has_latest_fetch_time {
-        conn.execute(
-            "ALTER TABLE frontier ADD COLUMN latest_fetch_time INTEGER DEFAULT 0",
-            [],
-        )?;
+    for (column, definition) in [
+        ("attempt_count", "INTEGER DEFAULT 0"),
+        ("next_attempt_at", "INTEGER"),
+        ("latest_fetch_time", "INTEGER DEFAULT 0"),
+    ] {
+        if !columns.iter().any(|existing| existing == column) {
+            conn.execute(
+                &format!("ALTER TABLE frontier ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
     }
 
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_frontier_status_latest_fetch_time
          ON frontier(status, latest_fetch_time);",
+    )?;
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_frontier_status_next_attempt_at
+         ON frontier(status, next_attempt_at);",
     )
 }
 
@@ -160,6 +170,18 @@ mod tests {
             )
             .unwrap();
         assert!(has_latest_fetch_time);
+        for column in ["attempt_count", "next_attempt_at"] {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS (
+                        SELECT 1 FROM pragma_table_info('frontier') WHERE name = ?1
+                    )",
+                    [column],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(exists, "missing migrated column {column}");
+        }
     }
 
     #[test]

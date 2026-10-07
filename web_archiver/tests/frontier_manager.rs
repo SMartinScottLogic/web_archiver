@@ -130,6 +130,8 @@ fn setup_manager() -> FrontierManager {
             discovered_from INTEGER,
             status TEXT,
             claimed_at INTEGER,
+            attempt_count INTEGER DEFAULT 0,
+            next_attempt_at INTEGER,
             latest_fetch_time INTEGER DEFAULT 0,
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
