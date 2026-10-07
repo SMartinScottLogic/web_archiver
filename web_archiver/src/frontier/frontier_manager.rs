@@ -339,7 +339,7 @@ mod tests {
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
                     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
-                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, attempt_count INTEGER DEFAULT 0, next_attempt_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
                     CREATE UNIQUE INDEX idx_frontier_url_id ON frontier(url_id);
                 "#).unwrap();
         let mut cache = HashMap::new();
@@ -477,7 +477,7 @@ mod tests {
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
                     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
-                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, attempt_count INTEGER DEFAULT 0, next_attempt_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
                     INSERT INTO urls (id, url, article_id, domain, discovered_at, use_playwright) VALUES (1, 'http://example.com', 1, 'example.com', 1, 0);
                     INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
                 "#).unwrap();
@@ -530,7 +530,7 @@ mod tests {
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);
                     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
-                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, attempt_count INTEGER DEFAULT 0, next_attempt_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
                     CREATE UNIQUE INDEX idx_frontier_url_id ON frontier(url_id);
                 "#).unwrap();
 
@@ -592,7 +592,7 @@ mod tests {
         // Create minimal schema for enqueue_batch and claim_next
         conn.lock().unwrap().execute_batch(r#"
                     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, article_id INTEGER NOT NULL, domain TEXT, discovered_at INTEGER, use_playwright INTEGER);
-                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
+                    CREATE TABLE frontier (url_id INTEGER, priority INTEGER, depth INTEGER, discovered_from INTEGER, status TEXT, claimed_at INTEGER, attempt_count INTEGER DEFAULT 0, next_attempt_at INTEGER, latest_fetch_time INTEGER DEFAULT 0);
                     INSERT INTO urls (id, url, article_id, domain, discovered_at, use_playwright) VALUES (1, 'http://example.com', 1, 'example.com', 1, 0);
                     INSERT INTO frontier (url_id, priority, depth, discovered_from, status, claimed_at) VALUES (1, 0, 0, NULL, 'pending', NULL);
                 "#).unwrap();

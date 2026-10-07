@@ -63,6 +63,7 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
         //&mut self,
         mut rx_fetch: mpsc::Receiver<FetchTask>,
         tx_fetched: mpsc::Sender<FetchedPage>,
+        tx_failed: mpsc::Sender<FetchTask>,
         semaphore: Arc<Semaphore>,
         db: Arc<DB>,
     ) {
@@ -83,11 +84,12 @@ impl<A: Archiver, DB: FrontierDbTrait> System<A, DB> {
 
                 let permit = semaphore.clone().acquire_owned().await.unwrap();
                 let tx = tx_fetched.clone();
+                let tx_failed = tx_failed.clone();
                 let db = db.clone();
                 let client = client.clone();
 
                 tokio::spawn(async move {
-                    worker_loop_single(task, tx, db, &client).await;
+                    worker_loop_single(task, tx, tx_failed, db, &client).await;
                     drop(permit);
                 });
             }
@@ -115,14 +117,16 @@ where
     pub fn spawn_router_loop(
         mut router: Router<A, DB>,
         mut rx_extracted: mpsc::Receiver<FetchedArticlePage>,
+        mut rx_failed: mpsc::Receiver<FetchTask>,
         mut rx_done: mpsc::Receiver<ArticleId>,
     ) {
         tokio::spawn(async move {
-            while let Some(page) = rx_extracted.recv().await {
-                router.route(page).await;
-
-                while let Ok(article_id) = rx_done.try_recv() {
-                    router.remove(article_id);
+            loop {
+                tokio::select! {
+                    Some(page) = rx_extracted.recv() => router.route(page).await,
+                    Some(task) = rx_failed.recv() => router.route_failure(task).await,
+                    Some(article_id) = rx_done.recv() => router.remove(article_id),
+                    else => break,
                 }
             }
         });
@@ -206,6 +210,8 @@ where
     let (tx_fetched, rx_fetched) = mpsc::channel::<FetchedPage>(100);
     // Extractor → Storage
     let (tx_extracted, rx_extracted) = mpsc::channel::<FetchedArticlePage>(100);
+    // Worker → Router terminal failure notifications
+    let (tx_failed, rx_failed) = mpsc::channel::<FetchTask>(100);
     // Storage → Frontier
     let (tx_links, rx_links) = mpsc::channel::<DiscoveredLinks>(500);
 
@@ -223,7 +229,7 @@ where
     // This task owns the receiver and spawns multiple async fetch tasks
     let sem = Arc::new(Semaphore::new(CONFIG.get().unwrap().workers));
     let storage_db = DB::connect(db_arc.clone());
-    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, sem, Arc::new(storage_db));
+    System::<A, DB>::spawn_workers(rx_fetch, tx_fetched, tx_failed, sem, Arc::new(storage_db));
 
     // --- Spawn Extractor Task ---
     System::<A, DB>::spawn_extractor(rx_fetched, tx_extracted, tx_links);
@@ -241,7 +247,7 @@ where
         tx_done,
         CONFIG.get().unwrap().workers * 10,
     );
-    System::spawn_router_loop(router, rx_extracted, rx_done);
+    System::spawn_router_loop(router, rx_extracted, rx_failed, rx_done);
 
     // Email processor loop
     let storage_db = DB::connect(db_arc.clone());
@@ -283,6 +289,7 @@ mod tests {
     async fn test_spawn_workers_processes_tasks() {
         let (tx_fetch, rx_fetch) = mpsc::channel::<FetchTask>(10);
         let (tx_fetched, rx_fetched) = mpsc::channel::<FetchedPage>(10);
+        let (tx_failed, _rx_failed) = mpsc::channel::<FetchTask>(10);
 
         let semaphore = Arc::new(Semaphore::new(1));
 
@@ -290,6 +297,7 @@ mod tests {
         System::<MockArchiver, MockFrontierDbTrait>::spawn_workers(
             rx_fetch,
             tx_fetched,
+            tx_failed,
             semaphore,
             Arc::new(db),
         );
@@ -361,6 +369,7 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_router_loop_basic() {
         let (tx_extracted, rx_extracted) = mpsc::channel::<FetchedArticlePage>(10);
+        let (_tx_failed, rx_failed) = mpsc::channel::<FetchTask>(10);
         let (tx_done, rx_done) = mpsc::channel::<ArticleId>(10);
 
         // Mock Archiver behavior
@@ -373,6 +382,7 @@ mod tests {
         System::<MockArchiver, MockFrontierDbTrait>::spawn_router_loop(
             router,
             rx_extracted,
+            rx_failed,
             rx_done,
         );
 

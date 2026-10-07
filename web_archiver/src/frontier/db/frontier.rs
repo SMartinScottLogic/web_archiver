@@ -2,7 +2,7 @@ use anyhow::Context;
 use common::types::{ArticleId, Priority};
 use common::url::extract_domain;
 use common::{types::FetchTask, url::remove_pagination_params};
-use rusqlite::{Connection, Result, params};
+use rusqlite::{Connection, OptionalExtension, Result, Transaction, params};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, debug_span, error};
 use url::Url;
@@ -13,11 +13,61 @@ use crate::settings::CONFIG;
 pub trait FrontierDbTrait: Send + Sync + 'static {
     fn connect(conn: Arc<Mutex<Connection>>) -> Self;
     fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> Result<(), anyhow::Error>;
+    fn mark_url(&self, url_id: i64, status: &str) -> Result<(), anyhow::Error>;
+    fn fail_url(&self, url_id: i64, retryable: bool) -> Result<bool, anyhow::Error>;
+    fn url_is_skipped(&self, url: &str) -> Result<bool, anyhow::Error>;
     fn mark_article(&self, article_id: ArticleId, status: &str) -> Result<(), anyhow::Error>;
 }
 #[derive(Clone)]
 pub struct FrontierDb {
     pub conn: Arc<Mutex<Connection>>,
+}
+
+fn enqueue_frontier_row(
+    tx: &Transaction<'_>,
+    url_id: i64,
+    task: &FetchTask,
+    force_priority: bool,
+    excluded: bool,
+) -> Result<()> {
+    tx.execute(
+        r#"INSERT INTO frontier (url_id, priority, depth, discovered_from, status)
+        VALUES (?1, ?2, ?3, ?4, CASE WHEN ?6 THEN 'skipped' ELSE 'pending' END)
+        ON CONFLICT(url_id) DO UPDATE SET
+            depth = MIN(frontier.depth, excluded.depth),
+            priority = CASE
+                WHEN ?5 THEN excluded.priority
+                WHEN excluded.priority > frontier.priority THEN excluded.priority
+                ELSE frontier.priority
+            END,
+            status = CASE
+                WHEN ?6 THEN 'skipped'
+                WHEN excluded.priority = ?7
+                    AND frontier.status IN ('complete', 'failed_terminal') THEN 'pending'
+                ELSE frontier.status
+            END,
+            attempt_count = CASE
+                WHEN excluded.priority = ?7
+                    AND frontier.status IN ('complete', 'failed_terminal') THEN 0
+                ELSE frontier.attempt_count
+            END,
+            next_attempt_at = CASE
+                WHEN excluded.priority = ?7
+                    AND frontier.status IN ('complete', 'failed_terminal') THEN NULL
+                ELSE frontier.next_attempt_at
+            END;
+        "#,
+        params![
+            url_id,
+            task.priority,
+            task.depth,
+            task.discovered_from,
+            force_priority,
+            excluded,
+            Priority::Article
+        ],
+    )?;
+    Ok(())
 }
 
 impl FrontierDb {
@@ -26,7 +76,13 @@ impl FrontierDb {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let updated = tx.execute(
-            "UPDATE frontier SET status = 'pending', priority = ?1 WHERE status = 'in_progress'",
+            "UPDATE frontier
+             SET status = CASE
+                    WHEN COALESCE(attempt_count, 0) >= 5 THEN 'failed_terminal'
+                    ELSE 'pending'
+                 END,
+                 priority = ?1
+             WHERE status = 'in_progress'",
             params![Priority::default()],
         )?;
         tx.commit()?;
@@ -38,14 +94,15 @@ impl FrontierDb {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let updated = tx.execute(
-            "UPDATE frontier SET status = 'pending', priority = ?1",
+            "UPDATE frontier
+             SET status = 'pending', priority = ?1, attempt_count = 0, next_attempt_at = NULL",
             params![Priority::default()],
         )?;
         tx.commit()?;
         Ok(updated)
     }
 
-    /// Re-queue stale completed HTTP URLs and all failed URLs.
+    /// Re-queue stale completed HTTP URLs and failed URLs whose retry delay elapsed.
     pub fn requeue_stale_or_failed(&self, refetch_after_days: u64) -> anyhow::Result<usize> {
         const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
         let age_seconds = refetch_after_days
@@ -58,20 +115,27 @@ impl FrontierDb {
             .ok_or_else(|| anyhow::anyhow!("refetch age exceeds the supported range"))?;
 
         let conn = self.conn.lock().unwrap();
-        let updated = conn.execute(
+        let retried = conn.execute(
             "UPDATE frontier
-             SET status = 'pending'
+             SET status = 'pending',
+                 next_attempt_at = NULL
              WHERE status = 'failed'
-                OR (
-                    status = 'complete'
-                    AND latest_fetch_time <= ?1
-                    AND url_id IN (
-                        SELECT id FROM urls WHERE use_playwright = 0
-                    )
+                AND COALESCE(attempt_count, 0) < 5
+                AND COALESCE(next_attempt_at, 0) <= CAST(strftime('%s', 'now') AS INTEGER)",
+            [],
+        )?;
+        let stale = conn.execute(
+            "UPDATE frontier
+             SET status = 'pending',
+                 next_attempt_at = NULL
+             WHERE status = 'complete'
+                AND latest_fetch_time <= ?1
+                AND url_id IN (
+                    SELECT id FROM urls WHERE use_playwright = 0
                 )",
             params![cutoff],
         )?;
-        Ok(updated)
+        Ok(retried + stale)
     }
 
     /// Batch insert fetch tasks (deduplication by URL)
@@ -137,27 +201,7 @@ impl FrontierDb {
                 params![&task.url],
                 |row: &rusqlite::Row<'_>| row.get(0),
             )?;
-            tx.execute(
-                r#"INSERT INTO frontier (url_id, priority, depth, discovered_from, status)
-                VALUES (?1, ?2, ?3, ?4, CASE WHEN ?6 THEN 'skipped' ELSE 'pending' END)
-                ON CONFLICT(url_id) DO UPDATE SET
-                    depth = MIN(frontier.depth, excluded.depth),
-                    priority = CASE
-                        WHEN ?5 THEN excluded.priority
-                        WHEN excluded.priority > frontier.priority THEN excluded.priority
-                        ELSE frontier.priority
-                    END,
-                    status = CASE WHEN ?6 THEN 'skipped' ELSE frontier.status END;
-                "#,
-                params![
-                    url_id,
-                    task.priority,
-                    task.depth,
-                    task.discovered_from,
-                    force_priority,
-                    excluded
-                ],
-            )?;
+            enqueue_frontier_row(&tx, url_id, task, force_priority, excluded)?;
         }
         tx.commit()?;
         Ok(())
@@ -182,7 +226,10 @@ impl FrontierDb {
                  ) as rn
              FROM frontier f
              JOIN urls u ON f.url_id = u.id
-             WHERE f.status = 'pending' AND u.use_playwright = 0
+             WHERE f.status = 'pending'
+               AND u.use_playwright = 0
+               AND COALESCE(f.attempt_count, 0) < 5
+               AND COALESCE(f.next_attempt_at, 0) <= CAST(strftime('%s', 'now') AS INTEGER)
          )
          WHERE rn = 1
          LIMIT ?1"#;
@@ -190,7 +237,10 @@ impl FrontierDb {
     const GET_NEXT_FAST: &'static str = r#"
     SELECT f.url_id, u.url, u.article_id, f.depth, f.priority, f.discovered_from, u.use_playwright
     FROM frontier f JOIN urls u ON f.url_id = u.id 
-    WHERE f.status = 'pending' AND u.use_playwright = 0
+    WHERE f.status = 'pending'
+      AND u.use_playwright = 0
+      AND COALESCE(f.attempt_count, 0) < 5
+      AND COALESCE(f.next_attempt_at, 0) <= CAST(strftime('%s', 'now') AS INTEGER)
     ORDER BY (f.priority-f.depth) DESC LIMIT ?1"#;
     /// Atomically claim the next pending task for fetching
     pub fn claim_next(&self, limit: isize) -> Result<Vec<FetchTask>> {
@@ -217,7 +267,11 @@ impl FrontierDb {
         };
         for task in &tasks {
             tx.execute(
-                "UPDATE frontier SET status = 'in_progress', claimed_at = strftime('%s','now') WHERE url_id = ?1",
+                "UPDATE frontier
+                 SET status = 'in_progress',
+                     claimed_at = strftime('%s','now'),
+                     attempt_count = COALESCE(attempt_count, 0) + 1
+                 WHERE url_id = ?1",
                 params![task.url_id],
             )?;
         }
@@ -265,6 +319,8 @@ impl FrontierDb {
         conn.execute(
             "UPDATE frontier
              SET status = ?2,
+                 attempt_count = CASE WHEN ?2 = 'complete' THEN 0 ELSE attempt_count END,
+                 next_attempt_at = CASE WHEN ?2 = 'complete' THEN NULL ELSE next_attempt_at END,
                  latest_fetch_time = CASE
                      WHEN ?2 = 'complete' THEN strftime('%s', 'now')
                      ELSE latest_fetch_time
@@ -273,6 +329,55 @@ impl FrontierDb {
             params![url_id, status],
         )?;
         Ok(())
+    }
+
+    /// Record a fetch failure and indicate whether this URL has exhausted retries.
+    pub fn fail(&self, url_id: i64, retryable: bool) -> Result<bool> {
+        const MAX_ATTEMPTS: i64 = 5;
+
+        let conn = self.conn.lock().unwrap();
+        let attempt_count: Option<i64> = conn
+            .query_row(
+                "SELECT attempt_count FROM frontier WHERE url_id = ?1",
+                params![url_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(attempt_count) = attempt_count else {
+            return Ok(true);
+        };
+
+        let terminal = !retryable || attempt_count >= MAX_ATTEMPTS;
+        if terminal {
+            conn.execute(
+                "UPDATE frontier SET status = 'failed_terminal', next_attempt_at = NULL WHERE url_id = ?1",
+                params![url_id],
+            )?;
+        } else {
+            let delay_minutes = 1_i64
+                .checked_shl((attempt_count.saturating_sub(1)).min(3) as u32)
+                .unwrap_or(8);
+            let delay_seconds = delay_minutes * 60;
+            conn.execute(
+                "UPDATE frontier
+                 SET status = 'failed',
+                     next_attempt_at = strftime('%s', 'now') + ?2
+                 WHERE url_id = ?1",
+                params![url_id, delay_seconds],
+            )?;
+        }
+        Ok(terminal)
+    }
+
+    pub fn url_is_skipped(&self, url: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT frontier.status = 'skipped'
+             FROM frontier JOIN urls ON urls.id = frontier.url_id
+             WHERE urls.url = ?1",
+            params![url],
+            |row| row.get(0),
+        )
     }
 
     /// Set the frontier status for all URLs in an article.
@@ -288,6 +393,8 @@ impl FrontierDb {
         conn.execute(
             r#"UPDATE frontier
             SET status = ?2,
+                attempt_count = CASE WHEN ?2 = 'complete' THEN 0 ELSE attempt_count END,
+                next_attempt_at = CASE WHEN ?2 = 'complete' THEN NULL ELSE next_attempt_at END,
                 latest_fetch_time = CASE
                     WHEN ?2 = 'complete' THEN strftime('%s', 'now')
                     ELSE latest_fetch_time
@@ -311,6 +418,21 @@ impl FrontierDbTrait for FrontierDb {
     fn enqueue_batch(&self, batch: &[FetchTask], high_priority: bool) -> anyhow::Result<()> {
         self.enqueue_batch(batch, high_priority)
             .context("enqueuing")
+    }
+
+    fn mark_url(&self, url_id: i64, status: &str) -> Result<(), anyhow::Error> {
+        self.mark(url_id, status)
+            .with_context(|| format!("mark url {status}"))
+    }
+
+    fn fail_url(&self, url_id: i64, retryable: bool) -> Result<bool, anyhow::Error> {
+        self.fail(url_id, retryable)
+            .with_context(|| format!("record url {url_id} failure"))
+    }
+
+    fn url_is_skipped(&self, url: &str) -> Result<bool, anyhow::Error> {
+        self.url_is_skipped(url)
+            .with_context(|| format!("check whether url is skipped: {url}"))
     }
 
     fn mark_article(&self, article_id: ArticleId, status: &str) -> Result<(), anyhow::Error> {

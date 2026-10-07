@@ -30,11 +30,23 @@ pub struct FetchedArticlePage {
 }
 
 pub struct Router<T: Archiver, DB: FrontierDbTrait> {
-    active: HashMap<ArticleId, (mpsc::Sender<FetchedArticlePage>, String)>,
+    active: HashMap<ArticleId, (mpsc::Sender<ArticleMessage>, String)>,
     max_active: usize,
     archiver: T,
     done_tx: mpsc::Sender<ArticleId>,
     db: Arc<DB>,
+}
+
+enum ArticleMessage {
+    Fetched(FetchedArticlePage),
+    Failed(FetchTask),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PageState {
+    Pending,
+    Fetched,
+    Failed,
 }
 
 struct ArticleState<DB>
@@ -44,7 +56,9 @@ where
     task: FetchTask,
     filename: PathBuf,
     snapshot: HistoricalSnapshot,
-    pages: HashMap<String, bool>,
+    pages: HashMap<String, PageState>,
+    page_ids: HashMap<String, i64>,
+    root_seen: bool,
     db: Arc<DB>,
 }
 
@@ -59,32 +73,62 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                 metadata: None,
             },
             pages: HashMap::new(),
+            page_ids: HashMap::new(),
+            root_seen: false,
             db,
         }
     }
 
     fn done(&self) -> bool {
-        debug!(known_remaining = ?self.pages.iter().filter(|page| !*page.1).collect::<Vec<_>>(), "known pages");
-        self.pages.iter().all(|(_url, &fetched)| fetched)
+        debug!(
+            known_remaining = ?self.pages.iter().filter(|(_, state)| **state == PageState::Pending).collect::<Vec<_>>(),
+            "known pages"
+        );
+        self.root_seen
+            && self
+                .pages
+                .values()
+                .all(|state| *state != PageState::Pending)
     }
 
-    fn apply(&mut self, page: FetchedArticlePage) {
+    fn has_failed_page(&self) -> bool {
+        self.pages.values().any(|state| *state == PageState::Failed)
+    }
+
+    fn apply(&mut self, page: FetchedArticlePage) -> bool {
+        let url = page.task.url.clone();
+        let is_root = is_article_root(&url);
+        if (is_root && self.root_seen)
+            || (!is_root && (!self.root_seen || self.pages.get(&url) != Some(&PageState::Pending)))
+        {
+            if let Err(err) = self.db.mark_url(page.task.url_id, "complete") {
+                error!(?err, url = %url, "Failed to mark ignored page complete");
+            }
+            return false;
+        }
+
         let page_number = match common::url::extract_page(&page.task.url) {
             common::url::Page::Number(page_number) => page_number,
             _ => 1,
         };
 
-        // Ensure current page is in pages (otherwise we'll double fetch the first)
-        // Mark as fetched
-        *self.pages.entry(page.task.url.clone()).or_insert(false) = true;
+        self.root_seen |= is_root;
+        self.pages.insert(url.clone(), PageState::Fetched);
+        self.page_ids.insert(url, page.task.url_id);
 
         let mut batch = Vec::new();
+        let mut newly_discovered_pages = Vec::new();
         // Add links to snapshot and article queue
         for link in &page.links {
             self.snapshot.links.insert(link.to_string());
             let mut priority = Priority::default();
             if self.is_page(link) {
-                self.pages.entry(link.to_string()).or_insert(false);
+                if let std::collections::hash_map::Entry::Vacant(entry) =
+                    self.pages.entry(link.to_string())
+                {
+                    newly_discovered_pages.push(link.to_string());
+                    entry.insert(PageState::Pending);
+                }
                 priority = Priority::Article;
             }
             // TODO Set this from Hosts
@@ -100,10 +144,28 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             });
         }
         if !batch.is_empty() {
-            let _ = self
-                .db
-                .enqueue_batch(&batch, false)
-                .inspect_err(|e| error!("failed enqueuing {:?}", e));
+            match self.db.enqueue_batch(&batch, false) {
+                Err(err) => {
+                    error!(?err, "failed enqueuing discovered links");
+                    for url in newly_discovered_pages {
+                        self.pages.insert(url, PageState::Failed);
+                    }
+                }
+                Ok(()) => {
+                    for url in newly_discovered_pages {
+                        match self.db.url_is_skipped(&url) {
+                            Ok(true) => {
+                                self.pages.insert(url, PageState::Failed);
+                            }
+                            Ok(false) => {}
+                            Err(err) => {
+                                error!(?err, %url, "Failed to check pagination URL status");
+                                self.pages.insert(url, PageState::Failed);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let content = HistoricalContent {
@@ -147,6 +209,14 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
         }
 
         debug!(?self.filename, ?page, ?self.snapshot, page_number, page_url = page.task.url, "apply");
+        true
+    }
+
+    fn fail_page(&mut self, task: &FetchTask) {
+        if self.pages.get(&task.url) == Some(&PageState::Pending) {
+            self.pages.insert(task.url.clone(), PageState::Failed);
+            self.page_ids.insert(task.url.clone(), task.url_id);
+        }
     }
 
     async fn persist(&self) -> Result<(), std::io::Error> {
@@ -161,6 +231,12 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
     }
 
     async fn finalize(mut self) -> anyhow::Result<()> {
+        if !self.done() {
+            anyhow::bail!("cannot finalize an article while discovered pages are unfetched");
+        }
+        if self.has_failed_page() {
+            anyhow::bail!("cannot finalize an article with a terminally failed page");
+        }
         if event_enabled!(Level::DEBUG) {
             debug!(?self.filename, ?self.snapshot, "finalize");
         } else {
@@ -235,15 +311,30 @@ impl<T: Archiver, DB: FrontierDbTrait> Router<T, DB> {
 
     pub async fn route(&mut self, mut page: FetchedArticlePage) {
         let article_id = page.task.article_id;
+        if !self.active.contains_key(&article_id) && !is_article_root(&page.task.url) {
+            if let Err(err) = self.db.mark_url(page.task.url_id, "complete") {
+                error!(?err, url = %page.task.url, "Failed to mark unlinked page complete");
+            }
+            return;
+        }
         loop {
             // Case 1: already active
             if let Some((tx, _)) = self.active.get(&article_id) {
-                match tx.send(page).await {
+                match tx.send(ArticleMessage::Fetched(page)).await {
                     Ok(_) => return,
                     Err(e) => {
                         // actor died → recover page and retry
-                        page = e.0;
+                        let ArticleMessage::Fetched(recovered_page) = e.0 else {
+                            return;
+                        };
+                        page = recovered_page;
                         self.active.remove(&article_id);
+                        if !is_article_root(&page.task.url) {
+                            if let Err(err) = self.db.mark_url(page.task.url_id, "complete") {
+                                error!(?err, url = %page.task.url, "Failed to mark unlinked page complete");
+                            }
+                            return;
+                        }
                         continue;
                     }
                 }
@@ -253,6 +344,13 @@ impl<T: Archiver, DB: FrontierDbTrait> Router<T, DB> {
             if self.active.len() >= self.max_active {
                 // backpressure / drop / requeue
                 warn!(?self.active, "router fully occupied");
+                if let Err(e) = self.db.fail_url(page.task.url_id, true) {
+                    error!(
+                        ?e,
+                        url = %page.task.url,
+                        "Failed to mark unrouted article page retryable"
+                    );
+                }
                 return;
             }
 
@@ -277,13 +375,28 @@ impl<T: Archiver, DB: FrontierDbTrait> Router<T, DB> {
             // loop will retry send immediately
         }
     }
+
+    pub async fn route_failure(&mut self, task: FetchTask) {
+        if let Some((tx, _)) = self.active.get(&task.article_id) {
+            if tx.send(ArticleMessage::Failed(task.clone())).await.is_err() {
+                warn!(url = %task.url, "Article actor closed before terminal fetch failure arrived");
+            }
+        }
+    }
+}
+
+fn is_article_root(url: &str) -> bool {
+    match common::url::extract_page(url) {
+        common::url::Page::Number(1) | common::url::Page::None | common::url::Page::Text(_) => true,
+        common::url::Page::Number(_) => false,
+    }
 }
 
 async fn article_actor<DB>(
     article_id: ArticleId,
     filename: PathBuf,
     task: FetchTask,
-    mut rx: mpsc::Receiver<FetchedArticlePage>,
+    mut rx: mpsc::Receiver<ArticleMessage>,
     done_tx: mpsc::Sender<ArticleId>,
     db: Arc<DB>,
 ) where
@@ -291,12 +404,16 @@ async fn article_actor<DB>(
 {
     let mut state = ArticleState::new(filename, task, db);
 
-    while let Some(page) = rx.recv().await {
-        state.apply(page);
-
-        // Write incrementally (safe: single writer)
-        if let Err(e) = state.persist().await {
-            eprintln!("persist error for {}: {:?}", article_id, e);
+    while let Some(message) = rx.recv().await {
+        match message {
+            ArticleMessage::Fetched(page) => {
+                if state.apply(page) {
+                    if let Err(e) = state.persist().await {
+                        error!(?e, article_id, "Failed to persist article state");
+                    }
+                }
+            }
+            ArticleMessage::Failed(task) => state.fail_page(&task),
         }
 
         if state.done() {
@@ -304,19 +421,34 @@ async fn article_actor<DB>(
         }
     }
 
-    // Final flush
-    let _ = state.finalize().await;
+    if state.done() && !state.has_failed_page() {
+        if let Err(e) = state.finalize().await {
+            error!(?e, article_id, "Failed to finalize article");
+        }
+    } else {
+        warn!(article_id, "Discarding incomplete article snapshot");
+        for (url, page_state) in &state.pages {
+            if *page_state == PageState::Fetched {
+                if let Some(url_id) = state.page_ids.get(url) {
+                    if let Err(err) = state.db.mark_url(*url_id, "complete") {
+                        error!(?err, %url, "Failed to mark fetched page complete after discarding article");
+                    }
+                }
+            }
+        }
+    }
     let _ = done_tx.send(article_id).await;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::frontier::db::frontier::MockFrontierDbTrait;
+    use crate::frontier::db::frontier::{FrontierDb, MockFrontierDbTrait};
 
     use super::*;
     use common::MockArchiver;
     use mockall::predicate::*;
     use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
     use tempfile::tempdir;
     use tokio::sync::mpsc;
     use tracing_test::traced_test;
@@ -348,6 +480,91 @@ mod tests {
         }
     }
 
+    fn make_archived_page(task: FetchTask, links: &[String]) -> FetchedArticlePage {
+        FetchedArticlePage {
+            task,
+            content: "new content".into(),
+            fetch_time: 123,
+            links: links.iter().cloned().collect(),
+            title: Some("title".into()),
+            document_metadata: vec![HashMap::new()],
+            json_ld: None,
+        }
+    }
+
+    fn seed_completed_ten_page_article() -> (Arc<FrontierDb>, Vec<FetchTask>) {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::frontier::db::schema::init_schema(&conn).unwrap();
+        let db = Arc::new(FrontierDb {
+            conn: Arc::new(Mutex::new(conn)),
+        });
+
+        let urls = (1..=10)
+            .map(|page| format!("https://refresh-tests.example.invalid/article?page={page}"))
+            .collect::<Vec<_>>();
+        let seeds = urls
+            .iter()
+            .map(|url| FetchTask {
+                article_id: 0,
+                url_id: 0,
+                url: url.clone(),
+                depth: 0,
+                priority: Priority::default(),
+                discovered_from: None,
+                use_playwright: false,
+            })
+            .collect::<Vec<_>>();
+        db.enqueue_batch(&seeds, false).unwrap();
+
+        let tasks = {
+            let conn = db.conn.lock().unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT urls.id, urls.article_id, urls.url, frontier.depth,
+                            frontier.priority, frontier.discovered_from, urls.use_playwright
+                     FROM urls JOIN frontier ON frontier.url_id = urls.id
+                     ORDER BY CAST(substr(urls.url, instr(urls.url, '=') + 1) AS INTEGER)",
+                )
+                .unwrap();
+            stmt.query_map([], |row| {
+                Ok(FetchTask {
+                    url_id: row.get(0)?,
+                    article_id: row.get(1)?,
+                    url: row.get(2)?,
+                    depth: row.get(3)?,
+                    priority: row.get(4)?,
+                    discovered_from: row.get(5)?,
+                    use_playwright: row.get(6)?,
+                })
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+        };
+
+        for task in &tasks {
+            db.mark(task.url_id, "complete").unwrap();
+        }
+        (db, tasks)
+    }
+
+    fn write_previous_ten_page_archive(path: &std::path::Path, task: FetchTask) {
+        let mut historical = HistoricalPage::new(task);
+        historical.current = Some(HistoricalSnapshot {
+            content_markdown: (1..=10)
+                .map(|page| HistoricalContent {
+                    content: common::historical::HistoricalContentType::Literal(format!(
+                        "previous page {page}"
+                    )),
+                    page,
+                })
+                .collect(),
+            links: HashSet::new(),
+            metadata: None,
+        });
+        historical.write_page(path).unwrap();
+    }
+
     // -----------------------------
     // ⭐ THE IMPORTANT TEST
     // -----------------------------
@@ -374,6 +591,7 @@ mod tests {
                         .all(|task| task.article_id == 1 && task.depth == 1)
             })
             .returning(|_, _| Ok(()));
+        db.expect_url_is_skipped().returning(|_| Ok(false));
 
         let db = Arc::new(db);
 
@@ -386,6 +604,8 @@ mod tests {
                 metadata: None,
             },
             pages: HashMap::new(),
+            page_ids: HashMap::new(),
+            root_seen: false,
             db,
         };
 
@@ -406,6 +626,8 @@ mod tests {
     }
 
     fn make_state(db: MockFrontierDbTrait) -> ArticleState<MockFrontierDbTrait> {
+        let mut db = db;
+        db.expect_url_is_skipped().returning(|_| Ok(false));
         ArticleState {
             task: make_task(1, "https://example.com?page=1"),
             filename: PathBuf::from("test.json"),
@@ -415,6 +637,8 @@ mod tests {
                 metadata: None,
             },
             pages: HashMap::new(),
+            page_ids: HashMap::new(),
+            root_seen: false,
             db: Arc::new(db),
         }
     }
@@ -427,8 +651,9 @@ mod tests {
         let db = MockFrontierDbTrait::new();
         let mut state = make_state(db);
 
-        state.pages.insert("a".into(), true);
-        state.pages.insert("b".into(), true);
+        state.root_seen = true;
+        state.pages.insert("a".into(), PageState::Fetched);
+        state.pages.insert("b".into(), PageState::Fetched);
 
         assert!(state.done());
     }
@@ -438,8 +663,9 @@ mod tests {
         let db = MockFrontierDbTrait::new();
         let mut state = make_state(db);
 
-        state.pages.insert("a".into(), true);
-        state.pages.insert("b".into(), false);
+        state.root_seen = true;
+        state.pages.insert("a".into(), PageState::Fetched);
+        state.pages.insert("b".into(), PageState::Pending);
 
         assert!(!state.done());
     }
@@ -458,7 +684,7 @@ mod tests {
 
         state.apply(page.clone());
 
-        assert_eq!(state.pages.get(&page.task.url), Some(&true));
+        assert_eq!(state.pages.get(&page.task.url), Some(&PageState::Fetched));
         assert_eq!(state.snapshot.content_markdown.len(), 1);
     }
 
@@ -488,6 +714,49 @@ mod tests {
         assert_eq!(state.snapshot.links.len(), 2);
     }
 
+    #[tokio::test]
+    async fn newly_discovered_article_pages_are_fetched_before_finalization() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("article.json");
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_enqueue_batch().returning(|_, _| Ok(()));
+        db.expect_url_is_skipped().returning(|_| Ok(false));
+        db.expect_mark_article().returning(|_, _| Ok(()));
+        let mut state = ArticleState::new(
+            file_path.clone(),
+            make_task(1, "https://example.com?page=1"),
+            Arc::new(db),
+        );
+
+        state.apply(make_page(
+            1,
+            "https://example.com?page=1",
+            &["https://example.com?page=2"],
+        ));
+        assert_eq!(
+            state.pages.get("https://example.com?page=2"),
+            Some(&PageState::Pending)
+        );
+        assert!(!state.done());
+        assert!(!file_path.exists());
+
+        state.apply(make_page(1, "https://example.com?page=2", &[]));
+        assert!(state.done());
+        state.finalize().await.unwrap();
+
+        let file = std::fs::File::open(file_path).unwrap();
+        let archived: HistoricalPage =
+            serde_json::from_reader(std::io::BufReader::new(file)).unwrap();
+        let page_numbers = archived
+            .current
+            .unwrap()
+            .content_markdown
+            .into_iter()
+            .map(|content| content.page)
+            .collect::<Vec<_>>();
+        assert_eq!(page_numbers, vec![1, 2]);
+    }
+
     #[test]
     fn apply_sets_metadata_only_once() {
         let mut db = MockFrontierDbTrait::new();
@@ -495,7 +764,8 @@ mod tests {
 
         let mut state = make_state(db);
 
-        let page1 = make_page(1, "https://example.com?page=1", &[]);
+        let mut page1 = make_page(1, "https://example.com?page=1", &[]);
+        page1.links.insert("https://example.com?page=2".into());
         let page2 = make_page(1, "https://example.com?page=2", &[]);
 
         state.apply(page1);
@@ -516,9 +786,10 @@ mod tests {
 
         let mut page1 = make_page(1, "https://example.com?page=1", &[]);
         page1.title = Some("page1".into());
+        page1.links.insert("https://example.com?page=2".into());
 
-        state.apply(page2);
         state.apply(page1);
+        state.apply(page2);
 
         assert_eq!(state.snapshot.metadata.unwrap().title, Some("page1".into()));
     }
@@ -561,7 +832,11 @@ mod tests {
     #[tokio::test]
     async fn router_respects_capacity_limit() {
         let (done_tx, _rx) = mpsc::channel(10);
-        let db = MockFrontierDbTrait::new();
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_fail_url()
+            .withf(|url_id, retryable| *url_id == 42 && *retryable)
+            .times(1)
+            .returning(|_, _| Ok(false));
 
         let mut router = Router::new(MockArchiver::new(), Arc::new(db), done_tx, 1);
 
@@ -645,6 +920,10 @@ mod tests {
 
         let mut state =
             ArticleState::new(file_path.clone(), make_task(1, "https://example.com"), db);
+        state
+            .pages
+            .insert("https://example.com?page=1".into(), PageState::Fetched);
+        state.root_seen = true;
 
         // Insert out of order
         state.snapshot.content_markdown.push(HistoricalContent {
@@ -669,6 +948,314 @@ mod tests {
         let pages: Vec<_> = snapshot.content_markdown.iter().map(|c| c.page).collect();
 
         assert_eq!(pages, vec![1, 2]); // sorted
+    }
+
+    #[tokio::test]
+    async fn finalize_does_not_replace_archive_with_incomplete_snapshot() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("article.json");
+        let previous_archive = "previous complete archive";
+        std::fs::write(&file_path, previous_archive).unwrap();
+
+        let mut mock_db = MockFrontierDbTrait::new();
+        mock_db.expect_mark_article().times(0);
+        let mut state = ArticleState::new(
+            file_path.clone(),
+            make_task(1, "https://example.com?page=1"),
+            Arc::new(mock_db),
+        );
+        state
+            .pages
+            .insert("https://example.com?page=1".into(), PageState::Fetched);
+        state
+            .pages
+            .insert("https://example.com?page=2".into(), PageState::Pending);
+        state.root_seen = true;
+
+        assert!(state.finalize().await.is_err());
+        assert_eq!(
+            std::fs::read_to_string(file_path).unwrap(),
+            previous_archive
+        );
+    }
+
+    #[test]
+    fn terminal_page_failure_resolves_known_page_without_completing_article() {
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_enqueue_batch().returning(|_, _| Ok(()));
+        let mut state = make_state(db);
+        state.apply(make_page(
+            1,
+            "https://example.com?page=1",
+            &["https://example.com?page=2"],
+        ));
+
+        let failed_page = make_task(1, "https://example.com?page=2");
+        state.fail_page(&failed_page);
+
+        assert!(state.done());
+        assert!(state.has_failed_page());
+    }
+
+    #[test]
+    fn excluded_pagination_page_resolves_as_terminal_for_article_assembly() {
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_enqueue_batch().returning(|_, _| Ok(()));
+        db.expect_url_is_skipped().returning(|_| Ok(true));
+        let mut state = ArticleState::new(
+            PathBuf::from("test.json"),
+            make_task(1, "https://example.com?page=1"),
+            Arc::new(db),
+        );
+
+        state.apply(make_page(
+            1,
+            "https://example.com?page=1",
+            &["https://example.com?page=2"],
+        ));
+
+        assert!(state.done());
+        assert!(state.has_failed_page());
+    }
+
+    #[tokio::test]
+    async fn article_actor_discards_snapshot_and_signals_completion_after_terminal_page_failure() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("article.json");
+        let previous_archive = "previous complete archive";
+        std::fs::write(&file_path, previous_archive).unwrap();
+
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_enqueue_batch().returning(|_, _| Ok(()));
+        db.expect_url_is_skipped().returning(|_| Ok(false));
+        db.expect_mark_article().times(0);
+        db.expect_mark_url()
+            .withf(|url_id, status| *url_id == 42 && status == "complete")
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let (done_tx, mut done_rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(2);
+        let task = make_task(1, "https://example.com?page=1");
+        let actor = tokio::spawn(article_actor(
+            1,
+            file_path.clone(),
+            task,
+            rx,
+            done_tx,
+            Arc::new(db),
+        ));
+
+        tx.send(ArticleMessage::Fetched(make_page(
+            1,
+            "https://example.com?page=1",
+            &["https://example.com?page=2"],
+        )))
+        .await
+        .unwrap();
+        let mut failed_page = make_task(1, "https://example.com?page=2");
+        failed_page.url_id = 43;
+        tx.send(ArticleMessage::Failed(failed_page)).await.unwrap();
+
+        assert_eq!(done_rx.recv().await, Some(1));
+        actor.await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(file_path).unwrap(),
+            previous_archive
+        );
+    }
+
+    #[test]
+    fn unlinked_stale_page_does_not_join_current_snapshot() {
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_mark_url()
+            .withf(|url_id, status| *url_id == 42 && status == "complete")
+            .times(1)
+            .returning(|_, _| Ok(()));
+        db.expect_enqueue_batch().returning(|_, _| Ok(()));
+
+        let mut state = make_state(db);
+        state.apply(make_page(1, "https://example.com?page=1", &[]));
+
+        let accepted = state.apply(make_page(1, "https://example.com?page=2", &[]));
+
+        assert!(!accepted);
+        assert_eq!(state.snapshot.content_markdown.len(), 1);
+        assert!(!state.pages.contains_key("https://example.com?page=2"));
+    }
+
+    #[test]
+    fn complete_refresh_replaces_current_page_set_when_page_count_shrinks() {
+        let task = make_task(1, "https://example.com?page=1");
+        let mut archived = HistoricalPage::new(task);
+        archived.current = Some(HistoricalSnapshot {
+            content_markdown: (1..=3)
+                .map(|page| HistoricalContent {
+                    content: common::historical::HistoricalContentType::Literal(format!(
+                        "old page {page}"
+                    )),
+                    page,
+                })
+                .collect(),
+            links: HashSet::new(),
+            metadata: None,
+        });
+
+        archived
+            .add_snapshot(HistoricalSnapshot {
+                content_markdown: (1..=2)
+                    .map(|page| HistoricalContent {
+                        content: common::historical::HistoricalContentType::Literal(format!(
+                            "new page {page}"
+                        )),
+                        page,
+                    })
+                    .collect(),
+                links: HashSet::new(),
+                metadata: None,
+            })
+            .unwrap();
+
+        let current_pages = archived
+            .current
+            .as_ref()
+            .unwrap()
+            .content_markdown
+            .iter()
+            .map(|content| content.page)
+            .collect::<Vec<_>>();
+        assert_eq!(current_pages, vec![1, 2]);
+        assert_eq!(archived.historical_snapshots.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn refetching_page_ten_and_failing_does_not_write_partial_archive() {
+        let dir = tempdir().unwrap();
+        let archive_path = dir.path().join("article.json");
+        let (db, tasks) = seed_completed_ten_page_article();
+        write_previous_ten_page_archive(&archive_path, tasks[0].clone());
+        let original_archive = std::fs::read(&archive_path).unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            let now = chrono::Utc::now().timestamp();
+            conn.execute("UPDATE frontier SET latest_fetch_time = ?1", [now])
+                .unwrap();
+            conn.execute(
+                "UPDATE frontier SET latest_fetch_time = 0 WHERE url_id = ?1",
+                [tasks[9].url_id],
+            )
+            .unwrap();
+        }
+        assert_eq!(db.requeue_stale_or_failed(1).unwrap(), 1);
+
+        let mut state = ArticleState::new(archive_path.clone(), tasks[0].clone(), db.clone());
+
+        for page_number in 1..=9 {
+            let task = if page_number == 1 {
+                tasks[0].clone()
+            } else {
+                let claimed = db.claim_next(1).unwrap().pop().unwrap();
+                assert_eq!(claimed.url, tasks[page_number - 1].url);
+                claimed
+            };
+            let links = if page_number < 10 {
+                vec![tasks[page_number].url.clone()]
+            } else {
+                Vec::new()
+            };
+            state.apply(make_archived_page(task, &links));
+        }
+
+        let failed_page = db.claim_next(1).unwrap().pop().unwrap();
+        assert_eq!(failed_page.url, tasks[9].url);
+        assert!(db.fail(failed_page.url_id, false).unwrap());
+        state.fail_page(&failed_page);
+
+        assert!(state.done());
+        assert!(state.has_failed_page());
+        assert!(state.finalize().await.is_err());
+        assert_eq!(std::fs::read(&archive_path).unwrap(), original_archive);
+    }
+
+    #[tokio::test]
+    async fn refetching_page_six_writes_only_linked_pages_one_through_eight() {
+        let dir = tempdir().unwrap();
+        let archive_path = dir.path().join("article.json");
+        let (db, tasks) = seed_completed_ten_page_article();
+        write_previous_ten_page_archive(&archive_path, tasks[0].clone());
+
+        {
+            let conn = db.conn.lock().unwrap();
+            let now = chrono::Utc::now().timestamp();
+            conn.execute("UPDATE frontier SET latest_fetch_time = ?1", [now])
+                .unwrap();
+            conn.execute(
+                "UPDATE frontier SET latest_fetch_time = 0 WHERE url_id = ?1",
+                [tasks[5].url_id],
+            )
+            .unwrap();
+        }
+        assert_eq!(db.requeue_stale_or_failed(1).unwrap(), 1);
+
+        let mut state = ArticleState::new(archive_path.clone(), tasks[0].clone(), db.clone());
+        let mut fetched_pages = Vec::new();
+
+        state.apply(make_archived_page(
+            tasks[0].clone(),
+            &[tasks[1].url.clone()],
+        ));
+        fetched_pages.push(tasks[0].url.clone());
+
+        for page_number in 2..=8 {
+            let task = db.claim_next(1).unwrap().pop().unwrap();
+            assert_eq!(task.url, tasks[page_number - 1].url);
+            fetched_pages.push(task.url.clone());
+            let links = if page_number < 8 {
+                vec![tasks[page_number].url.clone()]
+            } else {
+                Vec::new()
+            };
+            state.apply(make_archived_page(task, &links));
+        }
+
+        assert_eq!(
+            fetched_pages,
+            tasks[..8]
+                .iter()
+                .map(|task| task.url.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(db.claim_next(1).unwrap().len(), 0);
+
+        for task in &tasks[8..] {
+            let (status, claimed_at): (String, Option<i64>) = db
+                .conn
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT status, claimed_at FROM frontier WHERE url_id = ?1",
+                    [task.url_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(status, "complete", "unexpected refetch of {}", task.url);
+            assert_eq!(claimed_at, None, "page was attempted: {}", task.url);
+        }
+
+        assert!(state.done());
+        state.finalize().await.unwrap();
+
+        let file = File::open(&archive_path).unwrap();
+        let archived: HistoricalPage = serde_json::from_reader(BufReader::new(file)).unwrap();
+        let current_pages = archived
+            .current
+            .unwrap()
+            .content_markdown
+            .into_iter()
+            .map(|content| content.page)
+            .collect::<Vec<_>>();
+        assert_eq!(current_pages, (1..=8).collect::<Vec<_>>());
+        assert_eq!(archived.historical_snapshots.len(), 1);
     }
 
     #[tokio::test]
@@ -766,6 +1353,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn route_forwards_terminal_failures_to_active_article_actor() {
+        let (done_tx, _done_rx) = mpsc::channel(10);
+        let db = Arc::new(MockFrontierDbTrait::new());
+        let mut router = Router::new(MockArchiver::new(), db, done_tx, 10);
+        let (tx, mut rx) = mpsc::channel(1);
+        router.active.insert(1, (tx, "url".into()));
+
+        let task = make_task(1, "https://example.com?page=2");
+        router.route_failure(task.clone()).await;
+
+        assert!(matches!(
+            rx.recv().await,
+            Some(ArticleMessage::Failed(failed)) if failed.url_id == task.url_id
+        ));
+    }
+
+    #[tokio::test]
     async fn route_retries_when_actor_channel_closed() {
         let (done_tx, _done_rx) = mpsc::channel(10);
         let db = Arc::new(MockFrontierDbTrait::new());
@@ -813,9 +1417,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn route_does_not_start_snapshot_for_unlinked_pagination_page() {
+        let (done_tx, _done_rx) = mpsc::channel(10);
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_mark_url()
+            .withf(|url_id, status| *url_id == 42 && status == "complete")
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let mut router = Router::new(MockArchiver::new(), Arc::new(db), done_tx, 10);
+
+        router
+            .route(make_page(1, "https://example.com?page=3", &[]))
+            .await;
+
+        assert!(router.active.is_empty());
+    }
+
+    #[tokio::test]
     async fn route_does_not_spawn_when_at_capacity() {
         let (done_tx, _done_rx) = mpsc::channel(10);
-        let db = Arc::new(MockFrontierDbTrait::new());
+        let mut mock_db = MockFrontierDbTrait::new();
+        mock_db
+            .expect_fail_url()
+            .withf(|url_id, retryable| *url_id == 42 && *retryable)
+            .times(1)
+            .returning(|_, _| Ok(false));
+        let db = Arc::new(mock_db);
 
         let mut mock_archiver = MockArchiver::new();
         mock_archiver
