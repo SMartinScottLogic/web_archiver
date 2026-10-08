@@ -251,6 +251,22 @@ mod tests {
             todo!()
         }
 
+        fn mark_url(&self, _url_id: i64, _status: &str) -> rusqlite::Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        fn fail_url(
+            &self,
+            _url_id: i64,
+            _retryable: bool,
+        ) -> rusqlite::Result<bool, anyhow::Error> {
+            Ok(false)
+        }
+
+        fn url_is_skipped(&self, _url: &str) -> rusqlite::Result<bool, anyhow::Error> {
+            Ok(false)
+        }
+
         fn mark_article(
             &self,
             _article_id: ArticleId,
