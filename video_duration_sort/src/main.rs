@@ -1,17 +1,24 @@
+mod analyse;
 mod bktree;
 mod media;
 mod mover;
 mod planner;
+mod retain;
 
-use clap::Parser;
-use std::path::{PathBuf, absolute};
-use tracing::info;
-use tracing::level_filters::LevelFilter;
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug)]
 #[command(name = "video-sorter")]
-struct Args {
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Args, Debug, Clone)]
+struct AnalyseArgs {
     /// Paths to scan (positional, can be multiple)
     #[arg(default_value = ".")]
     paths: Vec<PathBuf>,
@@ -37,6 +44,21 @@ struct Args {
     min_image_pixels: u32,
 }
 
+#[derive(Args, Debug, Clone)]
+struct RetainArgs {
+    /// Read-only (scan and plan only)
+    #[arg(long)]
+    read_only: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Analyse and sort media files
+    Analyse(AnalyseArgs),
+    /// Retain the best media files
+    RetainBest(RetainArgs),
+}
+
 /// Initialize logging ---
 fn setup_logging() {
     // Initialize logging
@@ -55,50 +77,14 @@ fn setup_logging() {
 fn main() -> anyhow::Result<()> {
     setup_logging();
 
-    let args = Args::parse();
-
-    info!(?args, "Starting video-sorter");
-
-    let mut planner = planner::Planner::new(args.clone());
-
-    for root in &args.paths {
-        let abs_path = absolute(root)?;
-        info!(path=%&abs_path.display(), "Starting scan");
-        planner.scan(&abs_path)?;
-        info!(path=%&abs_path.display(), "Finished scan");
-    }
-
-    let plan = planner.finalize();
-
-    let total = plan.len();
-    let images = plan
-        .iter()
-        .filter(|op| matches!(op, mover::Operation::Image(_)))
-        .count();
-    let clusters = plan
-        .iter()
-        .filter(|op| {
-            matches!(
-                op,
-                mover::Operation::Cluster {
-                    target: _,
-                    files: _
-                }
+    match Cli::parse().command {
+        Command::Analyse(args) => analyse::analyse(args),
+        Command::RetainBest(args) => retain::analyse(&args).map(|freed| {
+            info!(
+                freed = humfmt::bytes(freed).to_string(),
+                ?args,
+                "retain best"
             )
-        })
-        .count();
-    let delete = plan
-        .iter()
-        .filter(|op| matches!(op, mover::Operation::Delete(_)))
-        .count();
-
-    info!(total, images, clusters, delete, "Plan finalized");
-
-    if !args.read_only {
-        mover::execute(plan)?;
-    } else {
-        info!(?plan, "plan");
+        }),
     }
-
-    Ok(())
 }

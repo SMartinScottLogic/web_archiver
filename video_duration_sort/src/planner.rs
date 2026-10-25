@@ -1,4 +1,4 @@
-use crate::Args;
+use crate::AnalyseArgs;
 use crate::media::video::fingerprint::{ToHex, distance, fingerprint_video};
 use crate::media::{infer_mime, is_image, video::ffprobe_duration};
 use rayon::prelude::*;
@@ -56,11 +56,11 @@ pub struct Planner {
     videos: Vec<PathBuf>,
     images: Vec<PathBuf>,
     durations: HashMap<String, usize>,
-    config: Args,
+    config: AnalyseArgs,
 }
 
 impl Planner {
-    pub fn new(config: Args) -> Self {
+    pub fn new(config: AnalyseArgs) -> Self {
         Self {
             videos: vec![],
             images: vec![],
@@ -127,7 +127,11 @@ impl Planner {
 }
 
 #[instrument(skip(files, _config, ops))]
-fn finalize_images(files: Vec<PathBuf>, _config: &Args, ops: &mut Vec<crate::mover::Operation>) {
+fn finalize_images(
+    files: Vec<PathBuf>,
+    _config: &AnalyseArgs,
+    ops: &mut Vec<crate::mover::Operation>,
+) {
     let mut uf = UnionFind::new(files.len());
 
     debug!(?files, "images");
@@ -206,7 +210,11 @@ fn finalize_images(files: Vec<PathBuf>, _config: &Args, ops: &mut Vec<crate::mov
 }
 
 #[instrument(skip(videos, config, ops))]
-fn finalize_videos(videos: Vec<PathBuf>, config: &Args, ops: &mut Vec<crate::mover::Operation>) {
+fn finalize_videos(
+    videos: Vec<PathBuf>,
+    config: &AnalyseArgs,
+    ops: &mut Vec<crate::mover::Operation>,
+) {
     let grouped: HashMap<String, Vec<PathBuf>> =
         videos.into_iter().fold(HashMap::new(), |mut acc, v| {
             let d = ffprobe_duration(&v).unwrap_or(0.0);
