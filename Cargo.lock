@@ -2314,6 +2314,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15cdd26707701c53297e2fa6afb323d55fbc1d0810c3aec078ae3ef0424c3c15"
 
 [[package]]
+name = "humfmt"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ba08806d373298f67f51901a85dc0769015fee2aacad367619c9cda375d019d"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6200,6 +6206,7 @@ dependencies = [
  "anyhow",
  "clap",
  "directories",
+ "humfmt",
  "image",
  "image_hasher",
  "infer",
