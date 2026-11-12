@@ -35,6 +35,8 @@ fn setup_db() -> FrontierDb {
             discovered_from INTEGER,
             status TEXT,
             claimed_at INTEGER,
+            attempt_count INTEGER DEFAULT 0,
+            next_attempt_at INTEGER,
             latest_fetch_time INTEGER DEFAULT 0,
             FOREIGN KEY(url_id) REFERENCES urls(id),
             UNIQUE(url_id)
@@ -107,6 +109,16 @@ fn test_enqueue_applies_host_path_exclusions_without_matching_query_urls() {
         },
     ];
     db.enqueue_batch(&tasks, false).unwrap();
+    assert!(
+        db.url_is_skipped(
+            "https://excluded.test/social/page?url=https%3A%2F%2Fwww.example.com%2Fs%2Fstory"
+        )
+        .unwrap()
+    );
+    assert!(
+        !db.url_is_skipped("https://excluded.test/social/page/extra")
+            .unwrap()
+    );
 
     let statuses = {
         let conn = db.conn.lock().unwrap();
@@ -207,6 +219,120 @@ fn test_enqueue_batch_deduplication() {
     assert!(seen.contains(&t2.url));
     // No more tasks
     assert!(db.claim_next(1).unwrap().pop().is_none());
+}
+
+#[test]
+fn test_article_page_discovery_requeues_completed_siblings_only() {
+    let db = setup_db();
+    let make_task = |url: &str, priority| FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: url.to_string(),
+        depth: 0,
+        priority,
+        discovered_from: None,
+        use_playwright: false,
+    };
+    let page_1 = "https://example.com/post?page=1";
+    let page_2 = "https://example.com/post?page=2";
+    let page_3 = "https://example.com/post?page=3";
+    let unrelated = "https://example.com/other";
+    db.enqueue_batch(
+        &[
+            make_task(page_1, Priority::default()),
+            make_task(page_2, Priority::default()),
+            make_task(page_3, Priority::default()),
+            make_task(unrelated, Priority::default()),
+        ],
+        false,
+    )
+    .unwrap();
+
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE frontier SET status = 'complete' WHERE url_id = (
+                SELECT id FROM urls WHERE url = ?1
+            )",
+            [page_2],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE frontier SET status = 'in_progress' WHERE url_id = (
+                SELECT id FROM urls WHERE url = ?1
+            )",
+            [page_3],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE frontier SET status = 'complete' WHERE url_id = (
+                SELECT id FROM urls WHERE url = ?1
+            )",
+            [unrelated],
+        )
+        .unwrap();
+    }
+
+    db.enqueue_batch(
+        &[
+            make_task(page_2, Priority::Article),
+            make_task("https://example.com/post?page=4", Priority::Article),
+        ],
+        false,
+    )
+    .unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let status_for = |url: &str| {
+        conn.query_row(
+            "SELECT frontier.status FROM frontier
+             JOIN urls ON urls.id = frontier.url_id
+             WHERE urls.url = ?1",
+            [url],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(status_for(page_2), "pending");
+    assert_eq!(status_for("https://example.com/post?page=4"), "pending");
+    assert_eq!(status_for(page_3), "in_progress");
+    assert_eq!(status_for(unrelated), "complete");
+}
+
+#[test]
+fn test_article_page_rediscovery_starts_new_attempt_cycle_for_terminal_url() {
+    let db = setup_db();
+    let page_url = "https://example.com/post?page=2";
+    let task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: page_url.to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    db.enqueue_batch(&[task.clone()], false).unwrap();
+    let page = db.claim_next(1).unwrap().pop().unwrap();
+    assert!(db.fail(page.url_id, false).unwrap());
+
+    let mut rediscovered = task;
+    rediscovered.priority = Priority::Article;
+    db.enqueue_batch(&[rediscovered], false).unwrap();
+
+    let status_and_attempts: (String, i64) = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT frontier.status, frontier.attempt_count
+             FROM frontier JOIN urls ON urls.id = frontier.url_id
+             WHERE urls.url = ?1",
+            [page_url],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status_and_attempts, ("pending".into(), 0));
 }
 
 #[test]
@@ -563,4 +689,129 @@ fn test_requeue_stale_or_failed_requeues_all_failed_urls() {
         )
         .unwrap();
     assert_eq!(http_status, "in_progress");
+}
+
+#[test]
+fn test_retryable_failures_use_backoff_and_stop_after_five_attempts() {
+    let db = setup_db();
+    let task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://retry.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    db.enqueue_batch(&[task], false).unwrap();
+
+    let claimed = db.claim_next(1).unwrap().pop().unwrap();
+    assert_eq!(
+        db.conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT attempt_count FROM frontier WHERE url_id = ?1",
+                [claimed.url_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+    assert!(!db.fail(claimed.url_id, true).unwrap());
+
+    let now = chrono::Utc::now().timestamp();
+    let retry_at: i64 = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT next_attempt_at FROM frontier WHERE url_id = ?1",
+            [claimed.url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!((now + 59..=now + 61).contains(&retry_at));
+    assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 0);
+
+    for attempt in 2..=5 {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE frontier SET next_attempt_at = 0 WHERE url_id = ?1",
+                [claimed.url_id],
+            )
+            .unwrap();
+        assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 1);
+        let retry = db.claim_next(1).unwrap().pop().unwrap();
+        assert_eq!(retry.url_id, claimed.url_id);
+        let terminal = db.fail(retry.url_id, true).unwrap();
+        assert_eq!(terminal, attempt == 5);
+    }
+
+    let status: String = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT status FROM frontier WHERE url_id = ?1",
+            [claimed.url_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "failed_terminal");
+    assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 0);
+}
+
+#[test]
+fn test_permanent_failure_is_not_requeued() {
+    let db = setup_db();
+    let task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://missing.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    db.enqueue_batch(&[task], false).unwrap();
+    let claimed = db.claim_next(1).unwrap().pop().unwrap();
+
+    assert!(db.fail(claimed.url_id, false).unwrap());
+    assert_eq!(db.requeue_stale_or_failed(30).unwrap(), 0);
+}
+
+#[test]
+fn test_startup_reset_does_not_exceed_attempt_limit() {
+    let db = setup_db();
+    let task = FetchTask {
+        article_id: 0,
+        url_id: 0,
+        url: "http://interrupted.example.com".to_string(),
+        depth: 0,
+        priority: Priority::default(),
+        discovered_from: None,
+        use_playwright: false,
+    };
+    db.enqueue_batch(&[task], false).unwrap();
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE frontier SET status = 'in_progress', attempt_count = 5",
+            [],
+        )
+        .unwrap();
+    }
+
+    assert_eq!(db.reset_in_progress().unwrap(), 1);
+    assert!(db.claim_next(1).unwrap().is_empty());
+    let status: String = db
+        .conn
+        .lock()
+        .unwrap()
+        .query_row("SELECT status FROM frontier", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(status, "failed_terminal");
 }

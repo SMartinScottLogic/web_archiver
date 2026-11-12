@@ -27,9 +27,10 @@ Normal HTTP workers claim only rows whose associated URL has
 | --- | --- |
 | `pending` | Eligible for the appropriate dispatcher: the HTTP frontier manager or Playwright scraper. |
 | `in_progress` | Claimed for a fetch/visit attempt. It does not guarantee that a network request or navigation completed. |
-| `complete` | The code's completion marker. For HTTP work this follows archive/media persistence; for Playwright work it follows a visit attempt. It is not proof of a successful HTTP response or captured API data. |
+| `complete` | The code's completion marker. For ordinary HTTP article work it follows archive/media persistence; a fetched pagination URL omitted from the current page-1 refresh, or successful pages from a discarded incomplete snapshot, can also be marked complete without changing the archive. For Playwright work it follows a visit attempt. It is not proof that content was included in the current archive or that the origin returned 2xx. |
 | `skipped` | The frontier manager rejected the URL under its crawl checks (for example, invalid/non-HTTP URL, disallowed domain, inactive host, depth or robots policy), or configured host-level `exclude_paths`. Excluded URLs are recorded as skipped when enqueued and are not dispatched to either fetcher. |
-| `failed` | Explicitly assigned in two paths: an HTTP task unexpectedly routed to the normal poller despite requiring Playwright, or a request error containing the `ENHANCE_YOUR_CALM` / excessive-load marker. Other fetch errors are not assigned this status. |
+| `failed` | A retryable HTTP fetch/save/routing failure awaiting its persisted retry time. It is retried at most five total claimed attempts per retry cycle, with 1, 2, 4, then 8 minutes between retry attempts. Retryable failures include network errors, save errors, HTTP 5xx, 408, and 429. |
+| `failed_terminal` | A non-retryable HTTP failure (including other HTTP 4xx or malformed requests), or a retryable failure after the fifth attempt in the cycle. It is not automatically retried; a later page-1 refresh that rediscovers the URL starts a new bounded attempt cycle. |
 
 ### Frontier transitions
 
@@ -40,25 +41,40 @@ Normal HTTP workers claim only rows whose associated URL has
 | `pending` | `in_progress` | `FrontierDb::claim_next` atomically claims a non-Playwright URL for HTTP work, or the scraper sets a Playwright URL to `in_progress` immediately before opening its browser tab. |
 | `in_progress` | `pending` | At crawler startup, `FrontierManager::new` resets all in-progress frontier rows. At each scraper pass, `resetQueue` resets in-progress Playwright rows. `reset_all` also sets every frontier row to pending when the configured full-reset option is enabled. |
 | `complete` | `pending` | The dispatcher re-queues stale completed HTTP URLs when `latest_fetch_time` is at or before the configured refetch cutoff. This requeue is explicitly limited to `use_playwright = 0`. |
-| `failed` | `pending` | The frontier dispatcher re-queues all failed URLs regardless of fetch age or `use_playwright`; the appropriate HTTP or Playwright dispatcher claims them afterward. |
+| `complete` or `failed_terminal` | `pending` | When the article assembler rediscovers a pagination URL, it enqueues it with article priority; completed or terminally failed rows are made pending and their attempt counters are reset for the new refresh cycle. Pending and in-progress rows are left unchanged. |
+| `in_progress` | `failed` | A retryable HTTP request, media persistence, or article routing failure occurs and fewer than five attempts have been claimed. The dispatcher re-queues it after its persisted backoff expires. |
+| `failed` | `pending` | The dispatcher re-queues a retryable failure after its persisted backoff expires, if fewer than five attempts have been claimed. |
+| `in_progress` | `failed_terminal` | An HTTP failure is classified as permanent, or a retryable failure occurs on the fifth attempt. This state is not automatically requeued. |
+| `failed_terminal` | `pending` | The article assembler explicitly rediscovers the URL as a pagination page; this starts a new bounded attempt cycle. |
 | `in_progress` | `skipped` | After claim, the frontier manager's crawl-policy check returns no crawl decision, so the URL is marked skipped instead of being sent to a worker. |
-| `in_progress` | `failed` | The frontier manager detects an invalid Playwright task in the normal HTTP poller. |
-| Any current status for the article's URLs | `failed` | A request error contains the excessive-load marker; `mark_article` applies the status to all frontier rows associated with that article. |
 | Any current status for the article's URLs | `complete` | An HTML article is finalized after its archive JSON is written; `mark_article` applies completion to all URLs associated with that article. A non-HTML response is marked complete after its media file is written. |
 | `in_progress` | `complete` | The Playwright loop calls `setStatus(..., 'complete')` after its navigation attempt. It catches a `page.goto` error, logs it, and still closes the tab and marks the URL complete. |
 | Any status | `pending` | If the configured full reset is enabled, `FrontierDb::reset_all` resets all frontier rows. |
 
-The general HTTP error branch logs the failure but does not mark the URL
-`failed` or return it to `pending`. Such a row can therefore remain
-`in_progress` until a crawler restart resets in-progress frontier rows. The
-normal HTTP fetch path also does not call `error_for_status`; HTML `FetchedPage`
-metadata currently uses status code `200`. Do not interpret `complete` as
-evidence that the origin returned 2xx.
+The article assembler starts a current snapshot only from page 1 (or an
+unpaginated root URL). It accepts pagination pages only when they were
+discovered during that page-1-rooted refresh; a stale, unlinked page may be
+fetched and have its URL status updated, but cannot create or join the current
+snapshot. A complete refresh replaces the current page set, so removed pages
+remain only in historical snapshots. The previous archive is preserved if any
+known page reaches a terminal failure or is excluded by host path policy; the
+actor waits for other known pages to resolve, then discards the incomplete
+snapshot and releases its router slot.
+Retryable failures remain pending in the article assembly until retry success
+or retry exhaustion.
 
-`skipped` is not automatically retried. `failed` rows are reset to `pending`
-by the frontier requeue regardless of age or fetch type. Both statuses can
-also be reset by the configured full reset, which indiscriminately sets every
-frontier row to `pending`.
+The normal HTTP fetch path rejects non-2xx responses with `error_for_status`.
+Network errors, save errors, HTTP 5xx, 408, and 429 are retried up to five total
+attempts with exponential backoff; other HTTP 4xx and malformed requests are
+terminal. HTML `FetchedPage` metadata currently records status code `200`
+rather than the actual 2xx code. Playwright work can still be marked complete
+after a failed navigation attempt, so do not interpret `complete` as proof
+that every fetch or visit succeeded.
+
+`skipped` and `failed_terminal` are not automatically retried. `failed` rows
+return to `pending` only after the retry delay, while under the five-attempt
+limit. `reset_all` can reset every frontier row to pending, including terminal
+failures, and also clears attempt counters and retry delays.
 
 ## Captured JSON files: `json_queue.status`
 

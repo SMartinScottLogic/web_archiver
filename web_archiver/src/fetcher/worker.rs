@@ -11,7 +11,7 @@ use common::types::FetchTask;
 use email::{FromHeader, mimeheaders::MimeContentTypeHeader};
 use mailparse::parse_content_disposition;
 use reqwest::{
-    Response,
+    Response, StatusCode,
     header::{CONTENT_DISPOSITION, CONTENT_TYPE},
 };
 use tokio::sync::mpsc::Sender;
@@ -29,6 +29,7 @@ use crate::{extractor::FetchedPage, frontier::db::frontier::FrontierDbTrait, set
 pub async fn worker_loop_single<DB>(
     task: FetchTask,
     tx: Sender<FetchedPage>,
+    tx_failed: Sender<FetchTask>,
     db: Arc<DB>,
     client: &reqwest::Client,
 ) where
@@ -39,6 +40,7 @@ pub async fn worker_loop_single<DB>(
     match fetch_page(client, &url).await {
         Ok((Some((major, _minor)), _, body)) if major == "text" => {
             let body_bytes = body.len();
+            let retry_task = task.clone();
             let fetched = FetchedPage {
                 task,
                 status_code: 200,
@@ -57,6 +59,7 @@ pub async fn worker_loop_single<DB>(
             );
             if let Err(e) = tx.send(fetched).await {
                 error!("Failed to send page to extractor: {}", e);
+                record_failure(&retry_task, true, db.as_ref(), &tx_failed).await;
             }
         }
         Ok((content_type, filename, body)) => {
@@ -65,22 +68,49 @@ pub async fn worker_loop_single<DB>(
                 body_bytes = body.len(),
                 "Fetched non-HTML content"
             );
-            let _ = save_content(task, &filename, &body, content_type, db)
-                .inspect_err(|e| error!(?e, ?filename, "save content"));
+            if let Err(err) = save_content(task.clone(), &filename, &body, content_type, db.clone())
+            {
+                error!(?err, ?filename, "save content");
+                record_failure(&task, true, db.as_ref(), &tx_failed).await;
+            }
         }
         Err(err) => {
+            let retryable = is_retryable_fetch_error(&err);
             if contains_enhance_your_calm(&err) {
-                info!("ENHANCE_YOUR_CALM received for {}. Marking failed.", url);
-                if let Err(db_err) = db.mark_article(task.article_id, "failed") {
-                    error!(
-                        ?db_err,
-                        "Failed to mark article complete after ENHANCE_YOUR_CALM"
-                    );
-                }
+                info!("ENHANCE_YOUR_CALM received for {}.", url);
             } else {
                 error!("Failed to fetch {}: {:?}", url, err);
             }
+            record_failure(&task, retryable, db.as_ref(), &tx_failed).await;
         }
+    }
+}
+
+fn is_retryable_fetch_error(err: &reqwest::Error) -> bool {
+    match err.status() {
+        Some(status) => {
+            status.is_server_error()
+                || status == StatusCode::REQUEST_TIMEOUT
+                || status == StatusCode::TOO_MANY_REQUESTS
+        }
+        None => !err.is_builder(),
+    }
+}
+
+async fn record_failure<DB: FrontierDbTrait>(
+    task: &FetchTask,
+    retryable: bool,
+    db: &DB,
+    tx_failed: &Sender<FetchTask>,
+) {
+    match db.fail_url(task.url_id, retryable) {
+        Ok(true) => {
+            if let Err(err) = tx_failed.send(task.clone()).await {
+                error!(url = %task.url, ?err, "Failed to report terminal URL failure");
+            }
+        }
+        Ok(false) => {}
+        Err(err) => error!(url = %task.url, ?err, "Failed to record URL failure"),
     }
 }
 
@@ -156,7 +186,7 @@ async fn fetch_page(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<(Option<(String, String)>, PathBuf, Vec<u8>), reqwest::Error> {
-    let resp = client.get(url).send().await?;
+    let resp = client.get(url).send().await?.error_for_status()?;
 
     let content_type = resp
         .headers()
@@ -242,7 +272,8 @@ fn media_directory(archive_dir: &Path, content_type: Option<&(String, String)>) 
 
 #[cfg(test)]
 mod tests {
-    use common::types::Priority;
+    use common::types::{FetchTask, Priority};
+    use tokio::sync::mpsc;
 
     use crate::{
         frontier::db::frontier::MockFrontierDbTrait, settings::test_setup::setup_test_config,
@@ -258,10 +289,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_worker_loop_single_sends_fetched() {
-        use common::types::FetchTask;
-        use tokio::sync::mpsc;
+    async fn test_fetch_page_rejects_http_error_status() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
 
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+
+        let result = fetch_page(
+            &reqwest::Client::new(),
+            &format!("http://{address}/missing"),
+        )
+        .await;
+        server.await.unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::NOT_FOUND));
+        assert!(!is_retryable_fetch_error(&error));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_page_retries_server_error_status() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+
+        let result = fetch_page(
+            &reqwest::Client::new(),
+            &format!("http://{address}/unavailable"),
+        )
+        .await;
+        server.await.unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_fetch_error(&error));
+    }
+
+    #[tokio::test]
+    async fn test_worker_loop_single_sends_fetched() {
         setup_test_config();
 
         // Use a known good URL for testing (httpbin.org is reliable for tests)
@@ -276,12 +364,39 @@ mod tests {
         };
         let db = MockFrontierDbTrait::new();
         let (tx, mut rx) = mpsc::channel(1);
+        let (tx_failed, mut rx_failed) = mpsc::channel(1);
         let client = reqwest::Client::new();
-        worker_loop_single(task, tx, Arc::new(db), &client).await;
+        worker_loop_single(task, tx, tx_failed, Arc::new(db), &client).await;
         // Should receive a FetchedPage
         let fetched = rx.try_recv().unwrap();
         assert_eq!(fetched.status_code, 200);
         assert!(!fetched.body.is_empty());
+        assert!(rx_failed.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_worker_marks_invalid_request_terminal() {
+        let task = FetchTask {
+            article_id: 1,
+            url_id: 19,
+            url: "not a valid URL".to_string(),
+            depth: 0,
+            priority: Priority::default(),
+            discovered_from: None,
+            use_playwright: false,
+        };
+        let mut db = MockFrontierDbTrait::new();
+        db.expect_fail_url()
+            .withf(|url_id, retryable| *url_id == 19 && !retryable)
+            .times(1)
+            .returning(|_, _| Ok(true));
+        let (tx, mut rx) = mpsc::channel(1);
+        let (tx_failed, mut rx_failed) = mpsc::channel(1);
+
+        worker_loop_single(task, tx, tx_failed, Arc::new(db), &reqwest::Client::new()).await;
+
+        assert!(rx.try_recv().is_err());
+        assert_eq!(rx_failed.try_recv().unwrap().url_id, 19);
     }
 
     #[test]
