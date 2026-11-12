@@ -59,6 +59,7 @@ where
     pages: HashMap<String, PageState>,
     page_ids: HashMap<String, i64>,
     root_seen: bool,
+    pagination_discovery_failed: bool,
     db: Arc<DB>,
 }
 
@@ -75,6 +76,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             pages: HashMap::new(),
             page_ids: HashMap::new(),
             root_seen: false,
+            pagination_discovery_failed: false,
             db,
         }
     }
@@ -147,6 +149,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
             match self.db.enqueue_batch(&batch, false) {
                 Err(err) => {
                     error!(?err, "failed enqueuing discovered links");
+                    self.pagination_discovery_failed |= !newly_discovered_pages.is_empty();
                     for url in newly_discovered_pages {
                         self.pages.insert(url, PageState::Failed);
                     }
@@ -160,6 +163,7 @@ impl<DB: FrontierDbTrait> ArticleState<DB> {
                             Ok(false) => {}
                             Err(err) => {
                                 error!(?err, %url, "Failed to check pagination URL status");
+                                self.pagination_discovery_failed = true;
                                 self.pages.insert(url, PageState::Failed);
                             }
                         }
@@ -428,12 +432,23 @@ async fn article_actor<DB>(
     } else {
         warn!(article_id, "Discarding incomplete article snapshot");
         for (url, page_state) in &state.pages {
-            if *page_state == PageState::Fetched {
+            if *page_state == PageState::Fetched
+                && !(state.pagination_discovery_failed && is_article_root(url))
+            {
                 if let Some(url_id) = state.page_ids.get(url) {
                     if let Err(err) = state.db.mark_url(*url_id, "complete") {
                         error!(?err, %url, "Failed to mark fetched page complete after discarding article");
                     }
                 }
+            }
+        }
+        if state.pagination_discovery_failed {
+            if let Err(err) = state.db.fail_url(state.task.url_id, true) {
+                error!(
+                    ?err,
+                    article_id,
+                    "Failed to schedule article root retry after pagination discovery failure"
+                );
             }
         }
     }
@@ -606,6 +621,7 @@ mod tests {
             pages: HashMap::new(),
             page_ids: HashMap::new(),
             root_seen: false,
+            pagination_discovery_failed: false,
             db,
         };
 
@@ -639,6 +655,7 @@ mod tests {
             pages: HashMap::new(),
             page_ids: HashMap::new(),
             root_seen: false,
+            pagination_discovery_failed: false,
             db: Arc::new(db),
         }
     }
@@ -1059,6 +1076,70 @@ mod tests {
 
         assert_eq!(done_rx.recv().await, Some(1));
         actor.await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(file_path).unwrap(),
+            previous_archive
+        );
+    }
+
+    #[tokio::test]
+    async fn pagination_enqueue_failure_retries_root_without_advancing_fetch_time() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("article.json");
+        let previous_archive = "previous complete archive";
+        std::fs::write(&file_path, previous_archive).unwrap();
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::frontier::db::schema::init_schema(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_pagination_enqueue
+             BEFORE INSERT ON urls
+             WHEN NEW.url = 'https://example.com?page=2'
+             BEGIN
+                 SELECT RAISE(ABORT, 'simulated database failure');
+             END;",
+        )
+        .unwrap();
+        let db = Arc::new(FrontierDb {
+            conn: Arc::new(Mutex::new(conn)),
+        });
+        db.enqueue_batch(&[make_task(1, "https://example.com?page=1")], false)
+            .unwrap();
+        let task = db.claim_next(1).unwrap().pop().unwrap();
+
+        let (done_tx, mut done_rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(1);
+        let actor = tokio::spawn(article_actor(
+            task.article_id,
+            file_path.clone(),
+            task.clone(),
+            rx,
+            done_tx,
+            db.clone(),
+        ));
+
+        let mut page = make_page(task.article_id, &task.url, &["https://example.com?page=2"]);
+        page.task = task.clone();
+        tx.send(ArticleMessage::Fetched(page)).await.unwrap();
+        drop(tx);
+
+        assert_eq!(done_rx.recv().await, Some(task.article_id));
+        actor.await.unwrap();
+
+        let (status, latest_fetch_time, attempt_count): (String, i64, i64) = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT status, latest_fetch_time, attempt_count
+                 FROM frontier WHERE url_id = ?1",
+                [task.url_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(latest_fetch_time, 0);
+        assert_eq!(attempt_count, 1);
         assert_eq!(
             std::fs::read_to_string(file_path).unwrap(),
             previous_archive
